@@ -6,12 +6,12 @@ Playing around with Clojure transducers.
 
 Don't.
 
-![Transmuter from Cat's Paw](transmuter.png)
+![Transmuter from Catspaw](transmuter.png "Transmuter")
 
 
 ## License
 
-Copyright © 2015 YOUR NAME
+Copyright © 2015 Steve Miner
 
 Distributed under the Eclipse Public License, same as Clojure.
 
