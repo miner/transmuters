@@ -1,10 +1,14 @@
-# transmuters
+# Transmuters
 
 Playing around with Clojure transducers.
 
 ## Usage
 
-Don't.
+> You like to think of yourselves as complex creatures, but you're flawed. One gains
+admittance to your minds through many levels. You have too many to keep track of
+yourselves. There are unguarded entrances to any human mind.
+
+- Sylvia
 
 ![Transmuter from Catspaw](transmuter.png "Transmuter")
 
