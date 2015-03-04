@@ -1,10 +1,13 @@
 # transmuters
 
-A Clojure library WITH YOUR DESCRIPTION.
+Playing around with Clojure transducers.
 
 ## Usage
 
-FIXME
+Don't.
+
+![Transmuter from Cat's Paw](transmuter.png)
+
 
 ## License
 
