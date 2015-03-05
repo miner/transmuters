@@ -100,17 +100,19 @@
                            (unreduced (rf result v))))]
             (rf result)))
          ([result input]
-          (let [val (f input)]
-            (if val
-              (let [v (vec (.toArray a))]
-                (.clear a)
-                (let [ret (rf result v)]
-                  (when-not (reduced? ret)
-                    (.add a input))
-                  ret))
-              (do
-                (.add a input)
-                result))))))))
+            (if (.isEmpty a)
+              (do (.add a input)
+                  result)
+              (if (f input)
+                (let [v (vec (.toArray a))]
+                  (.clear a)
+                  (let [ret (rf result v)]
+                    (when-not (reduced? ret)
+                      (.add a input))
+                    ret))
+                (do
+                  (.add a input)
+                  result))))))))
 
   ([f coll]
   (lazy-seq
