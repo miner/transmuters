@@ -122,3 +122,133 @@
        (cons run (partition-when f (seq (drop (count run) s)))))))))
 
 
+;; SEM: accumalate always takes the item that triggers the pred into the current partition.
+;; What if you want a stronger guarantee (such as total less than a limit)?  Dual of the
+;; issue about how to handle first item if pred decides item should go into new partition.
+
+;; Sort of a cross between partition-all and reduce.  Always add to current partition, start
+;; a new one on pred of acc after addition.
+
+;; alternate name: partition-until
+
+(defn accumulate
+  "Accumulates sequential items of <coll> into partitions.  As each item goes
+  into the current partition, an internal value is calculated by applying <accf> to previous
+  accumulation and the incoming item.  If the resulting accumulation satifies <pred>, the
+  current partition is complete and the next item will go into a new partition.  The
+  internal accumulation starts as <init> for each partition.Returns a stateful transducer
+  when no collection is provided."
+  {:added "1.X"
+   :static true}
+  ([pred accf init]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)
+           vacc (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                           ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (vreset! vacc nil)  ;; might help gc???
+            (rf result)))
+         ([result input]
+          (.add a input)
+          (let [acc (accf @vacc input)]
+            (if (pred acc)
+              ;; push old, start new partition
+              (let [v (vec (.toArray a))]
+                (.clear a)
+                (let [ret (rf result v)]
+                  (vreset! vacc init)
+                  ret))
+              ;; continue current partition
+              (do
+                (vreset! vacc acc)
+                result))))))))
+  ([pred accf init coll]
+   (let [[res part] (reduce (fn [[res part acc] item]
+                              (let [part (conj part item)
+                                    acc (accf acc item)]
+                                (if (pred acc)
+                                  [(conj res part) [] init]
+                                  [res part acc])))
+                            [[] [] init]
+                            coll)]
+     (if (empty? part)
+       res
+       (conj res part)))))
+
+
+
+;; Don't like the "unpartionable data".  If you want sum to be less than 10 and you get 11,
+;; you can't partition!  Just give up?  Skip that item and go on?  Use it anyway as a
+;; singleton?  (No, violates invariant.)
+
+
+;; SEM: name is potentially confusing.  Could be partition-accumulation?  but still issues.
+(defn partition-with
+  "Accumulates sequential items of <coll> into partitions.  First, an internal value is
+  calculated by applying <accf> to previous accumulation and the incoming item.  If the
+  resulting accumulation satifies <pred>, the item is added to the current partion.
+  Otherwise, it goes into a new partition.  The internal accumulation starts as <init> for
+  each partition.  Returns a stateful transducer when no collection is provided."
+
+  {:added "1.X"
+   :static true}
+  ([pred accf init]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)
+           vacc (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                           ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (vreset! vacc nil)  ;; might help gc???
+            (rf result)))
+         ([result input]
+          (let [acc (accf @vacc input)]
+            (if (pred acc)
+              ;; continue current partition
+              (do
+                (.add a input)
+                (vreset! vacc acc)
+                result)
+              (if (.isEmpty a)
+                ;; unpartitionable data
+                (ensure-reduced result)
+                ;; push old, start new partition
+                (let [v (vec (.toArray a))]
+                  (.clear a)
+                  (let [ret (rf result v)
+                        acc (accf init input)]
+                    (if (pred acc)
+                      (do
+                        (.add a input)
+                        (vreset! vacc acc)
+                        ret)
+                      ;; unpartitionable data
+                      (ensure-reduced result))))))))))))
+
+
+  ([pred accf init coll]
+   (let [[res part] (reduce (fn [[res part acc] item]
+                              (let [part (conj part item)
+                                    acc (accf acc item)]
+                                (if (pred acc)
+                                  [(conj res part) [] init]
+                                  [res part acc])))
+                            [[] [] init]
+                            coll)]
+     (if (empty? part)
+       res
+       (conj res part)))))
+
