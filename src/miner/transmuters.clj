@@ -1,7 +1,9 @@
 (ns miner.transmuters)
 
 
-;; empty would make a convenient transducer that does nothing (ultimately returns empty list)
+;; empty would make a convenient degenerate transducer that does nothing (ultimately returns
+;; empty list)
+
 (defn my-empty
   "Like empty, but no-arg yields degenerate transducer that alway returns empty list"
   ([] (fn [rf]
@@ -183,6 +185,57 @@
        (conj res part)))))
 
 
+;;; SEM NEEDS TESTING FOR TRANSDUCER
+(defn partition-threshold
+  "Accumulates sequential items of <coll> into partitions according to <scoref> function and
+  the <threshold> integer.  As each item goes into the current partition, an integral score
+  is calculated by applying the <scoref> function to the incoming item and adding the result
+  to the previous score.  If the resulting score is greater than or equal to the
+  <threshold>, the current partition is complete and the next item will go into a new
+  partition.  The internal score starts as 0 for each partition.  Returns a stateful
+  transducer when no collection is provided."
+  
+  {:added "1.X"
+   :static true}
+  ([scoref threshold]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)
+           vscore (volatile! 0)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                           ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (rf result)))
+         ([result input]
+          (.add a input)
+          (let [score (vswap! vscore + (scoref input))]
+            (if (>= score threshold)
+              ;; push old, start new partition
+              (let [v (vec (.toArray a))]
+                (.clear a)
+                (let [ret (rf result v)]
+                  (vreset! vscore 0)
+                  ret))
+              ;; continue current partition
+              result)))))))
+  ([scoref threshold coll]
+   (let [[res part] (reduce (fn [[res part score] item]
+                              (let [part (conj part item)
+                                    score (+ score (scoref item))]
+                                (if (>= score threshold)
+                                  [(conj res part) [] 0]
+                                  [res part score])))
+                            [[] [] 0]
+                            coll)]
+     (if (empty? part)
+       res
+       (conj res part)))))
+
 
 ;; Don't like the "unpartionable data".  If you want sum to be less than 10 and you get 11,
 ;; you can't partition!  Just give up?  Skip that item and go on?  Use it anyway as a
@@ -251,4 +304,139 @@
      (if (empty? part)
        res
        (conj res part)))))
+
+
+;; SEM idea rotate (like partition-all but groups rotate???)
+
+(defn rotate
+  "Returns a lazy seq of the elements of the finite sequence `coll` with
+  the first `n` elements rotated to the end of the result.  If n is
+  negative, the last n elements of coll are rotated to the front of
+  the result.  Default n is 1 if not given."
+  ([coll] (rotate 1 coll))
+  ([n coll]
+       (let [cnt (count coll)
+             n (if (<= cnt 1) 0 (mod n cnt))]
+         (concat (drop n coll) (take n coll)))))
+
+;; ray@1729.org.uk on clojure mailing list
+(defn rotations [xs]
+  "Returns a seq of all possible rotations of the finite seq `xs`"
+  (take (count xs) (partition (count xs) 1 (cycle xs))))
+
+
+
+
+;; SEM: I want a (chain f g) that lets f take as many as it wants, but when it completes, it hands
+;; over to g to continue where it left off.  Not "wrapping" like comp.
+
+(defn chain
+  ([] identity)
+  ([f] f)
+  ([f g]
+   (fn
+     ([] f)
+     ([x] (f x))
+     ([x y] (f x y)))))
+
+
+
+(defn take-while-then-map
+  ([pred f]
+   (fn [rf]
+     (let [flagv (volatile! true)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [flag (and @flagv (pred input))]
+            (if flag
+              (rf result input)
+              (rf result (f input)))))))))
+  ([pred f coll]
+     (lazy-seq
+      (when-let [s (seq coll)]
+        (if (pred (first s))
+          (cons (first s) (take-while-then-map pred f (rest s)))
+          (map f s))))))
+
+
+(defn take-then-map
+  ([n f]
+   (fn [rf]
+     (let [nv (volatile! n)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if-let [n @nv]
+            (let [nn (vswap! nv dec)
+                  result (if (pos? n)
+                           (rf result input)
+                           (rf result (f input)))]
+              (when (zero? nn)
+                (vreset! nv nil))
+              result)
+            (rf result (f input))))))))
+  ([n f coll]
+   (concat (take n coll) (map f (drop n coll)))))
+
+
+(defn take-then
+  ([n-or-f g]
+   (if (fn? n-or-f)
+     (take-while-then-map n-or-f g)
+     (take-then-map n-or-f g)))
+  ([n-or-f g coll]
+   (if (fn? n-or-f)
+     (take-while-then-map n-or-f g coll)
+     (take-then-map n-or-f g coll))))
+  
+;; ([f]
+;;     (fn [rf]
+;;       (fn
+;;         ([] (rf))
+;;         ([result] (rf result))
+;;         ([result input]
+;;            (rf result (f input)))
+;;         ([result input & inputs]
+;;            (rf result (apply f input inputs))))))
+
+
+;; user=> (sequence (take-then 4 (comp dec sq)) (range 20))
+;; (0 1 2 3 15 24 35 48 63 80 99 120 143 168 195 224 255 288 323 360)
+
+;; user=> (sequence (chain (take 4) (map (comp dec sq))) (range 20))
+
+;; user=> (sequence (chain (take 4) (comp (map sq) (map dec))) (range 20))
+
+
+;; See my-transmuters.txt
+;; IDEA: (collect N xform ... rest-xform)
+
+
+
+;; "Variadic partial fn".  For use in tranducers...
+;;   (map (vfn max))
+;; looks a bit nicer than any of these:
+;;   (map #(apply max %))
+;;   (map (partial apply max))
+;;   (map (fn [args] (apply max args)))
+
+;; Thought about other names: "partial*", "papp", "avfn", "apfn", "partial-apply"
+;; But apply and derivatives are too active, it's not applying now.
+;; partial* is maybe most logical, but a little long.
+;; Liked vfn for being short and mnemonic, 'v' for "variadic".  Admittedly, it doesn't
+;; create the variadic, it calls it.  So it's not a perfect name.
+
+(defn vfn
+  "Similar to `partial`, but for use a variadic function.  Takes variadic `f` and any number
+  of fixed arguments.  Returns a function that takes a collection as its single argument and
+  applies `f` to the concatenation of the fixed arguments and the collection argument."
+  ([f] (fn [args] (apply f args)))
+  ([f a] (fn [args] (apply f a args)))
+  ([f a b] (fn [args] (apply f a b args)))
+  ([f a b c] (fn [args] (apply f a b c args)))
+  ([f a b c & more] (fn [args] (apply f a b c (concat more args)))))
+
 

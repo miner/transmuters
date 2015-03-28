@@ -78,3 +78,15 @@
             [80 81] [82] [83] [84] [85] [86] [87] [88] [89] [90] [91] [92] [93] [94]
             [95] [96] [97] [98] [99])))))
 
+;; handy combinator for testing
+;; rem is slightly faster than mod
+(defn zmod [n]
+  (fn [x] (zero? (rem x n))))
+
+(deftest zzzmods
+  (let [coll (range 100)]
+    (is (= (range 0 (count coll) 3)
+           (filter (zmod 3) coll)
+           (sequence (filter (zmod 3)) coll)
+           (sequence (take-nth 3) coll)))))
+        
