@@ -18,8 +18,8 @@
 
 
 (defn test-empty [coll]
-  (is (empty? (sequence (my-empty) coll)))
-  (is (empty? (my-empty coll))))
+  (is (empty? (sequence (xempty) coll)))
+  (is (empty? (xempty coll))))
 
 ;; for reference only, this is "wrong" if the first item doesn't satisfy f
 ;; Don't use this.  slow-partition-when is a fix.

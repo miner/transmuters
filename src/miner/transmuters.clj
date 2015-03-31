@@ -1,10 +1,10 @@
 (ns miner.transmuters)
 
 
-;; empty would make a convenient degenerate transducer that does nothing (ultimately returns
+;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
 ;; empty list)
 
-(defn my-empty
+(defn xempty
   "Like empty, but no-arg yields degenerate transducer that alway returns empty list"
   ([] (fn [rf]
        (fn
@@ -12,7 +12,65 @@
          ([result] (rf result))
          ([result input] (ensure-reduced result)))))
   ([coll] (empty coll)))
-  
+
+;; xidentity is the identity function for transducers, just passes the input through
+;; equivalent to (map conj)
+(defn xidentity
+  ([] (fn [rf]
+        (fn
+          ([] (rf))
+          ([result] (rf result))
+          ([result input] (rf result input)))))
+  ([coll] (seq coll)))
+
+
+;; might even work
+(defn chain2
+  ([] (fn [rf]
+        (fn
+          ([] (rf))
+          ([result] (rf result))
+          ([result input] (rf result input)))))
+  ([xf] xf)
+  ([xf xg] (fn [rf]
+             (let [vflag (volatile! true)
+                   frf (xf rf)
+                   grf (xg rf)]
+               (fn
+                 ([] (if @vflag (frf) (grf)))
+                 ([result] (if @vflag (frf result) (grf result)))
+                 ([result input]
+                  (let [res (if @vflag (frf result input) (grf result input))]
+                    (if (reduced? res)
+                      (do (vreset! vflag false)
+                          (unreduced res))
+                      res)))))))
+  ([xf xg xh] (chain2 xf (chain2 xg xh)))
+  ([xf xg xh & xmore] (chain2 xf (apply chain2 xg xh xmore))))
+
+;; needs testing
+(defn xchain
+  ;; degenerate case is simply pass through (xidentity)
+  ([] (fn [rf]
+        (fn
+          ([] (rf))
+          ([result] (rf result))
+          ([result input] (rf result input)))))
+  ([xf] xf)
+  ([xf & xmore] (fn [rf]
+                  (let [vxfs (volatile! (conj xf xmore))]
+                    (fn
+                      ([] (if-let [xform (first @vxfs)] (xform) (rf)))
+                      ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
+                      ([result input]
+                       (if-let [xform (first @vxfs)]
+                         (let [res (xform result input)]
+                           (if (reduced? res)
+                             (do (vswap! vxfs rest)
+                                 (unreduced res))
+                             res))
+                         (ensure-reduced result))))))))
+
 
 ;; I think (take-nth 0) should always be the empty list.
 ;; This is a change from the way it works in Clojure 1.6.
@@ -327,20 +385,7 @@
 
 
 
-;; SEM: I want a (chain f g) that lets f take as many as it wants, but when it completes, it hands
-;; over to g to continue where it left off.  Not "wrapping" like comp.
-
-(defn chain
-  ([] identity)
-  ([f] f)
-  ([f g]
-   (fn
-     ([] f)
-     ([x] (f x))
-     ([x y] (f x y)))))
-
-
-
+;; experiment, but not exactly right
 (defn take-while-then-map
   ([pred f]
    (fn [rf]
@@ -438,5 +483,4 @@
   ([f a b] (fn [args] (apply f a b args)))
   ([f a b c] (fn [args] (apply f a b c args)))
   ([f a b c & more] (fn [args] (apply f a b c (concat more args)))))
-
 
