@@ -4,6 +4,7 @@
 ;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
 ;; empty list)
 
+;; But beware, it will consume one input in a chain even though nothing results.
 (defn xempty
   "Like empty, but no-arg yields degenerate transducer that alway returns empty list"
   ([] (fn [rf]
@@ -14,7 +15,7 @@
   ([coll] (empty coll)))
 
 ;; xidentity is the identity function for transducers, just passes the input through
-;; equivalent to (map conj)
+;; equivalent to (map identity)
 (defn xidentity
   ([] (fn [rf]
         (fn
@@ -24,7 +25,7 @@
   ([coll] (seq coll)))
 
 
-;; might even work
+;; works but clunky, keep for testing
 (defn chain2
   ([] (fn [rf]
         (fn
@@ -48,28 +49,35 @@
   ([xf xg xh] (chain2 xf (chain2 xg xh)))
   ([xf xg xh & xmore] (chain2 xf (apply chain2 xg xh xmore))))
 
-;; needs testing
-(defn xchain
-  ;; degenerate case is simply pass through (xidentity)
+
+;; Issue with (take 0) always consuming one input
+;; seems to work
+(defn chain
+  ;; degenerate case is simply pass through (essentially, the transducer identity)
   ([] (fn [rf]
         (fn
           ([] (rf))
           ([result] (rf result))
           ([result input] (rf result input)))))
   ([xf] xf)
-  ([xf & xmore] (fn [rf]
-                  (let [vxfs (volatile! (conj xf xmore))]
-                    (fn
-                      ([] (if-let [xform (first @vxfs)] (xform) (rf)))
-                      ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
-                      ([result input]
-                       (if-let [xform (first @vxfs)]
-                         (let [res (xform result input)]
-                           (if (reduced? res)
-                             (do (vswap! vxfs rest)
-                                 (unreduced res))
-                             res))
-                         (ensure-reduced result))))))))
+  ([xf & xfs] (fn [rf]
+                (let [vxfs (volatile! (map #(% rf) (conj xfs xf)))]
+                  (fn
+                    ([] (if-let [xform (first @vxfs)] (xform) (rf)))
+                    ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
+                    ([result input]
+                     (if-let [xform (first @vxfs)]
+                       (let [res (xform result input)]
+                         ;; reduced means that xform is done
+                         (if (reduced? res)
+                           ;; mutating like a C hacker!
+                           (if (vswap! vxfs next)
+                             (unreduced res)
+                             res)
+                           res))
+                       (ensure-reduced result))))))))
+
+
 
 
 ;; I think (take-nth 0) should always be the empty list.
