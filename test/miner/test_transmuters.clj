@@ -10,9 +10,9 @@
          (transduce (my-take-nth 3) conj [] coll))))
 
 (defn test-drop-nth [coll]
-  (is (= (my-drop-nth 3 coll)
-         (sequence (my-drop-nth 3) coll)
-         (transduce (my-drop-nth 3) conj [] coll)
+  (is (= (drop-nth 3 coll)
+         (sequence (drop-nth 3) coll)
+         (transduce (drop-nth 3) conj [] coll)
          (keep-indexed (fn [i x] (when (pos? (mod i 3)) x)) coll)
          (sequence (keep-indexed (fn [i x] (when (pos? (mod i 3)) x))) coll))))
 
@@ -64,13 +64,15 @@
     
 
   
-(deftest accumulations
+(deftest thresholds
   (let [coll (range 100)]
-    (is (= (sequence (accumulate (partial = 13) (fn [acc _] (inc acc)) 0) coll)
-           (accumulate (partial = 13) (fn [acc _] (inc acc)) 0 coll)
+    (is (= (sequence (partition-threshold (constantly 1) 13) coll)
            (sequence (partition-all 13) coll)))
-    (is (= (sequence (accumulate (fn [x] (> x 80)) + 0) coll)
-           (accumulate (fn [x] (> x 80)) + 0 coll)
+    (is (= (sequence (comp (partition-all 4) (partition-threshold (app max) 100)
+                           (map flatten) (map (app +)))
+                     (range 100))
+           '(378 402 546 444 508 572 636 700 764)))
+    (is (= (sequence (partition-threshold identity 81) coll)
            '([0 1 2 3 4 5 6 7 8 9 10 11 12 13] [14 15 16 17 18 19] [20 21 22 23]
             [24 25 26 27] [28 29 30] [31 32 33] [34 35 36] [37 38 39] [40 41] [42 43]
             [44 45] [46 47] [48 49] [50 51] [52 53] [54 55] [56 57] [58 59] [60 61]
