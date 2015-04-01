@@ -80,6 +80,18 @@
             [80 81] [82] [83] [84] [85] [86] [87] [88] [89] [90] [91] [92] [93] [94]
             [95] [96] [97] [98] [99])))))
 
+(defn sq [n] (* n n))
+
+(deftest chaining
+  (let [coll (range 100)]
+    (is (= (sequence (chain) coll) coll))
+    (is (= (sequence (chain (comp)) coll) coll))
+    (is (= (sequence (chain (map sq)) coll) (map sq coll)))
+    (is (= (sequence (chain (take 5)) coll) (take 5 coll)))
+    (is (= (sequence (chain (comp (take 5) (map sq)) (map -)) coll) 
+           (concat (map sq (take 5 coll)) (map - (drop 5 coll)))))))
+    
+    
 ;; handy combinator for testing
 ;; rem is slightly faster than mod
 (defn zmod [n]
