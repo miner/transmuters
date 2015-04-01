@@ -45,11 +45,10 @@
                      (if-let [xform (first @vxfs)]
                        (let [res (xform result input)]
                          ;; reduced means that xform is done
+                         ;; so we deref/unreduce it unless we're out of xforms
                          (if (reduced? res)
                            ;; mutating like a C hacker!
-                           (if (vswap! vxfs next)
-                             (unreduced res)
-                             res)
+                           (if (vswap! vxfs next) @res res) 
                            res))
                        (ensure-reduced result))))))))
 
