@@ -56,11 +56,13 @@
                          ;; unless we're out of xforms.
                          ;; xform = ::pushback is a special case where we want the next xform to use
                          ;; the same input (typically after a take-while).
-                         (if (and (reduced? res) (vswap! vxfs next))
-                           (if (= (first @vxfs) ::pushback)
-                             (do (vswap! vxfs next)
-                                 (recur @res input))
-                             @res)
+                         (if (reduced? res)
+                           ;; note completion with original xform
+                           (do (vswap! vxfs next)
+                               (if (= (first @vxfs) ::pushback)
+                                 (do (vswap! vxfs next)
+                                     (recur (xform @res) input))
+                                 (xform @res)))
                            res))
                        (ensure-reduced result))))))))
 
