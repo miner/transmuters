@@ -58,11 +58,10 @@
                          ;; the same input (typically after a take-while).
                          (if (reduced? res)
                            ;; note completion with original xform
-                           (do (vswap! vxfs next)
-                               (if (= (first @vxfs) ::pushback)
-                                 (do (vswap! vxfs next)
-                                     (recur (xform @res) input))
-                                 (xform @res)))
+                           (if (= (first (vswap! vxfs next)) ::pushback)
+                             (do (vswap! vxfs next)
+                                 (recur (xform @res) input))
+                             (xform @res))
                            res))
                        (ensure-reduced result))))))))
 
