@@ -29,21 +29,39 @@
 ;; terminators, such as take-while, will burn an extra input because it needs to know
 ;; when to stop.  Other examples: xempty and (take 0) -- but not (take N) where N is positive.
 ;; In these cases, we typically want the next xform in the chain to see that burned input.
-;; To get the desired behavior, add `pushback` (no parens) as the next item in the chain.
-;; It's not really a transducer.  The `chain` fn handles it specially to reuse the input
-;; with the next item in the chain.  Obviously, it doesn't make sense to use `pushback` as
-;; the first or last item in a transducer chain, or to have multiple pushbacks in a row.
+;; To get the desired behavior, the chain call must have `pushback` (no parens) as the next item.
+;; Note that `pushback` is not a real transducer, but the `chain` fn handles it specially to
+;; reuse the input with the next xform in the chain.  Obviously, it doesn't make sense to
+;; use `pushback` as the first or last item in a transducer chain, or to have multiple
+;; pushbacks in a row.
 
-(def pushback (constantly ::pushback))
+(defn pushback
+  "A pseudo-transducer which indicates to `chain` that the same input should be re-used by the
+  next xform in the chain.  It should be used in a chain following a transducer such as
+  `take-while` which normally burns an extra input to know when to stop.  For example,
+  (chain (take-while even?) pushback (take 5)) would avoid skipping the odd number that
+  terminated the take-while."
+  [_]
+  ::pushback)
 
 (defn chain
-  ;; degenerate case is simply pass through (essentially, the transducer identity)
+  "Chains together any number of transducers such that when the first one terminates, the
+  next transducer can pick up the inputs where it left off.  If a transducer never
+  terminates, the following ones will never see any input.  If a terminating transducer such
+  as `take-while` burns an extra input to decide when to terminate, that input will appear
+  to be skipped by the chain. You can use the pseudo-transducer `pushback` as the next
+  transducer in the chain to give that following transducer access to that item as its
+  first input."
+
   ([] (fn [rf]
+        ;; essentially, the transducer identity
         (fn
           ([] (rf))
           ([result] (rf result))
           ([result input] (rf result input)))))
+
   ([xf] xf)
+
   ([xf & xfs] (fn [rf]
                 (let [vxfs (volatile! (map #(% rf) (conj xfs xf)))]
                   (fn
@@ -51,6 +69,10 @@
                     ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
                     ([result input]
                      (if-let [xform (first @vxfs)]
+                       ;; treat initial or duplicate pushback as a no-op
+                       (if (= xform ::pushback)
+                         (do (vswap! vxfs next)
+                             (recur result input))
                        (let [res (xform result input)]
                          ;; reduced means that xform is done, so we deref/unreduce it
                          ;; unless we're out of xforms.
@@ -62,9 +84,8 @@
                              (do (vswap! vxfs next)
                                  (recur (xform @res) input))
                              (xform @res))
-                           res))
+                           res)))
                        (ensure-reduced result))))))))
-
 
 ;; I think (take-nth 0) should always be the empty list.
 ;; This is a change from the way it works in Clojure 1.6.
