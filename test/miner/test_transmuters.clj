@@ -87,10 +87,21 @@
     (is (= (sequence (chain) coll) coll))
     (is (= (sequence (chain (comp)) coll) coll))
     (is (= (sequence (chain (map sq)) coll) (map sq coll)))
+    ;; (take 0) is a special case that burns on input so we need the pushback
+    (is (= (sequence (chain (take 0) pushback (map sq)) coll) (map sq coll)))
     (is (= (sequence (chain (take 5)) coll) (take 5 coll)))
     (is (= (sequence (chain (comp (take 5) (map sq)) (map -)) coll) 
-           (concat (map sq (take 5 coll)) (map - (drop 5 coll)))))))
-    
+           (concat (map sq (take 5 coll)) (map - (drop 5 coll)))))
+    ;; take-while burns an extra input so you need to pushback
+    (is (= (sequence (chain (comp (take 5) (map sq))
+                            (comp (take-while #(< % 20)) (map -)) pushback
+                            (comp (take 10) (map sq))
+                            (filter even?))
+                     coll)
+           (concat (map sq (take 5 coll))
+                   (map - (take 15 (drop 5 coll)))
+                   (map sq (take 10 (drop 20 coll)))
+                   (filter even? (drop 30 coll)))))))
     
 ;; handy combinator for testing
 ;; rem is slightly faster than mod

@@ -25,8 +25,15 @@
   ([coll] (empty coll)))
 
 
-;; Possible issue with (take 0) always consuming one input, but that seems necessary for
-;; transducers.
+;; Some transducers always burn an extra input because they need it to know when to stop.
+;; Examples: take-while, xempty, (take 0) -- but not (take N) where N is positive.
+;; In these cases, we typically want the next xform in the chain to see that burned input.
+;; To get that behavior, add `pushback` (no parens) as the next item in the chain.  It's not
+;; really a transducer.  The `chain` fn handles it specially to reuse the input with the
+;; next item in the chain.  Obviously, it doesn't make sense to use `pushback` as the first
+;; or last item in a transducer chain, or to have multiple pushbacks in a row.
+
+(def pushback (constantly ::pushback))
 
 (defn chain
   ;; degenerate case is simply pass through (essentially, the transducer identity)
@@ -44,14 +51,17 @@
                     ([result input]
                      (if-let [xform (first @vxfs)]
                        (let [res (xform result input)]
-                         ;; reduced means that xform is done
-                         ;; so we deref/unreduce it unless we're out of xforms
-                         (if (reduced? res)
-                           ;; mutating like a C hacker!
-                           (if (vswap! vxfs next) @res res) 
+                         ;; reduced means that xform is done, so we deref/unreduce it
+                         ;; unless we're out of xforms.
+                         ;; xform = ::pushback is a special case where we want the next xform to use
+                         ;; the same input (typically after a take-while).
+                         (if (and (reduced? res) (vswap! vxfs next))
+                           (if (= (first @vxfs) ::pushback)
+                             (do (vswap! vxfs next)
+                                 (recur @res input))
+                             @res)
                            res))
                        (ensure-reduced result))))))))
-
 
 
 ;; I think (take-nth 0) should always be the empty list.
@@ -165,7 +175,6 @@
 
 
 
-;;; SEM NEEDS TESTING FOR TRANSDUCER
 (defn partition-threshold
   "Accumulates sequential items of <coll> into partitions according to <scoref> function and
   the <threshold> integer.  As each item goes into the current partition, an integral score
@@ -174,7 +183,6 @@
   <threshold>, the current partition is complete and the next item will go into a new
   partition.  The internal score starts as 0 for each partition.  Returns a stateful
   transducer when no collection is provided."
-  
   {:added "1.X"
    :static true}
   ([scoref threshold]
