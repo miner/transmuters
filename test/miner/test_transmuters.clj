@@ -90,6 +90,9 @@
     ;; (take 0) is a special case that burns on input so we need the pushback
     (is (= (sequence (chain (take 0) pushback (map sq)) coll) (map sq coll)))
     (is (= (sequence (chain (take 5)) coll) (take 5 coll)))
+    (is (= (sequence (chain (comp (drop-while #(< % 4)) (take 3)) (map -)) coll)
+           (sequence (chain (comp (drop 4) (take-while #(< % 7))) pushback (map -)) coll)
+           (concat (take 3 (drop 4 coll)) (map - (drop 7 coll)))))
     (is (= (sequence (chain (comp (take 5) (map sq)) (map -)) coll) 
            (concat (map sq (take 5 coll)) (map - (drop 5 coll)))))
     (is (= (sequence (comp (map (partial + 10)) (chain (comp (take 5) (map sq)) (map -)) ) coll)

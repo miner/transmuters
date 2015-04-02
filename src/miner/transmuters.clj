@@ -25,13 +25,14 @@
   ([coll] (empty coll)))
 
 
-;; Some transducers always burn an extra input because they need it to know when to stop.
-;; Examples: take-while, xempty, (take 0) -- but not (take N) where N is positive.
+;; Transducers support early termination using (reduced ...). Some of those early
+;; terminators, such as take-while, will burn an extra input because it needs to know
+;; when to stop.  Other examples: xempty and (take 0) -- but not (take N) where N is positive.
 ;; In these cases, we typically want the next xform in the chain to see that burned input.
-;; To get that behavior, add `pushback` (no parens) as the next item in the chain.  It's not
-;; really a transducer.  The `chain` fn handles it specially to reuse the input with the
-;; next item in the chain.  Obviously, it doesn't make sense to use `pushback` as the first
-;; or last item in a transducer chain, or to have multiple pushbacks in a row.
+;; To get the desired behavior, add `pushback` (no parens) as the next item in the chain.
+;; It's not really a transducer.  The `chain` fn handles it specially to reuse the input
+;; with the next item in the chain.  Obviously, it doesn't make sense to use `pushback` as
+;; the first or last item in a transducer chain, or to have multiple pushbacks in a row.
 
 (def pushback (constantly ::pushback))
 
