@@ -92,6 +92,9 @@
     (is (= (sequence (chain (take 5)) coll) (take 5 coll)))
     (is (= (sequence (chain (comp (take 5) (map sq)) (map -)) coll) 
            (concat (map sq (take 5 coll)) (map - (drop 5 coll)))))
+    (is (= (sequence (comp (map (partial + 10)) (chain (comp (take 5) (map sq)) (map -)) ) coll)
+           (let [coll10 (map (partial + 10) coll)]
+             (concat (map sq (take 5 coll10)) (map - (drop 5 coll10))))))
     ;; take-while burns an extra input so you need to pushback
     (is (= (sequence (chain (comp (take 5) (map sq))
                             (comp (take-while #(< % 20)) (map -)) pushback
