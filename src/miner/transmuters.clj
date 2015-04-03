@@ -1,16 +1,5 @@
 (ns miner.transmuters)
 
-;; xidentity is the identity function for transducers, just passes the input through
-;; equivalent to (map identity)
-(defn xidentity
-  ([] (fn [rf]
-        (fn
-          ([] (rf))
-          ([result] (rf result))
-          ([result input] (rf result input)))))
-  ([coll] (seq coll)))
-
-
 ;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
 ;; empty list)
 
@@ -38,54 +27,55 @@
 (defn pushback
   "A pseudo-transducer which indicates to `chain` that the same input should be re-used by the
   next xform in the chain.  It should be used in a chain following a transducer such as
-  `take-while` which normally burns an extra input to know when to stop.  For example,
+  `take-while` which normally burns an extra input when deciding to terminate.  For example,
   (chain (take-while even?) pushback (take 5)) would avoid skipping the odd number that
   terminated the take-while."
   [_]
   ::pushback)
 
-(defn chain
-  "Chains together any number of transducers such that when the first one terminates, the
-  next transducer can pick up the inputs where it left off.  If a transducer never
-  terminates, the following ones will never see any input.  If a terminating transducer such
-  as `take-while` burns an extra input to decide when to terminate, that input will appear
-  to be skipped by the chain. You can use the pseudo-transducer `pushback` as the next
-  transducer in the chain to give that following transducer access to that item as its
-  first input."
 
-  ([] (fn [rf]
-        ;; essentially, the transducer identity
-        (fn
-          ([] (rf))
-          ([result] (rf result))
-          ([result input] (rf result input)))))
+;; SEM -- consider step with multiple results, then reduced.  Does that work?
+
+;; Issue -- not sure if (chain) should be like identity (just pass through) or maybe
+;; terminate immediately (empty list).
+
+(defn chain
+  "Chains together any number of transducers such that when one transducer terminates, the
+  next transducer can pick up where it left off.  If a transducer never terminates, the
+  following ones will never see any input.  If a terminating transducer such as `take-while`
+  burns an extra input to decide when to terminate, that input will appear to be skipped by
+  the chain. You can use the pseudo-transducer `pushback` as the next transducer in the
+  chain to give that following transducer access to that item as its first input."
+  {:static true}
+
+  ([] identity)
 
   ([xf] xf)
 
-  ([xf & xfs] (fn [rf]
-                (let [vxfs (volatile! (map #(% rf) (conj xfs xf)))]
-                  (fn
-                    ([] (if-let [xform (first @vxfs)] (xform) (rf)))
-                    ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
-                    ([result input]
-                     (if-let [xform (first @vxfs)]
-                       ;; treat initial or duplicate pushback as a no-op
-                       (if (= xform ::pushback)
-                         (do (vswap! vxfs next)
-                             (recur result input))
-                       (let [res (xform result input)]
-                         ;; reduced means that xform is done, so we deref/unreduce it
-                         ;; unless we're out of xforms.
-                         ;; xform = ::pushback is a special case where we want the next xform to use
-                         ;; the same input (typically after a take-while).
-                         (if (reduced? res)
-                           ;; note completion with original xform
-                           (if (= (first (vswap! vxfs next)) ::pushback)
-                             (do (vswap! vxfs next)
-                                 (recur (xform @res) input))
-                             (xform @res))
-                           res)))
-                       (ensure-reduced result))))))))
+  ([xf & xfs]
+   (fn [rf]
+     (let [vxfs (volatile! (map #(% rf) (conj xfs xf)))]
+       (fn
+         ([] (if-let [xform (first @vxfs)] (xform) (rf)))
+         ([result] (if-let [xform (first @vxfs)] (xform result) (rf result)))
+         ([result input]
+          (if-let [xform (first @vxfs)]
+            ;; treat initial or duplicate pushback as a no-op
+            (if (= xform ::pushback)
+              (do (vswap! vxfs next)
+                  (recur result input))
+              (let [res (xform result input)]
+                ;; reduced means that xform is done, so we deref and complete
+                ;; xform = ::pushback is a special case where we want the next xform to use
+                ;; the same input (typically after a take-while).
+                (if (reduced? res)
+                  ;; completion with original xform
+                  (if (= (first (vswap! vxfs next)) ::pushback)
+                    (do (vswap! vxfs next)
+                        (recur (xform @res) input))
+                    (xform @res))
+                  res)))
+            (ensure-reduced result))))))))
 
 ;; I think (take-nth 0) should always be the empty list.
 ;; This is a change from the way it works in Clojure 1.6.
@@ -94,8 +84,7 @@
 (defn my-take-nth
   "Returns a lazy seq of every nth item in coll.  Returns a stateful
   transducer when no collection is provided.  N=0 returns empty list."
-  {:added "1.0"
-   :static true}
+  {:static true}
   ([n]
    (if (zero? n)
      (fn [rf]
@@ -159,8 +148,7 @@
    "Applies f to each value in coll, starting a new partition each time f returns a
    true value.  Returns a lazy seq of partitions.  Returns a stateful
    transducer when no collection is provided."
-  {:added "1.X"
-   :static true}
+  {:static true}
   ([f]
    (fn [rf]
      (let [a (java.util.ArrayList.)]
@@ -206,8 +194,7 @@
   <threshold>, the current partition is complete and the next item will go into a new
   partition.  The internal score starts as 0 for each partition.  Returns a stateful
   transducer when no collection is provided."
-  {:added "1.X"
-   :static true}
+  {:static true}
   ([scoref threshold]
    (fn [rf]
      (let [a (java.util.ArrayList.)
