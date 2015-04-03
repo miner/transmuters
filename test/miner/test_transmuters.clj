@@ -40,29 +40,13 @@
          (sequence (partition-when f) coll)
          (transduce (partition-when f) conj [] coll))))
 
-
 (deftest ranges
-  (let [coll (range 100)]
-    (test-take-nth coll)
-    (test-drop-nth coll)
-    (test-partition-when even? coll)
-    (test-partition-when odd? coll)
-    (test-empty coll))
-  (let [coll [1]]
-    (test-take-nth coll)
-    (test-drop-nth coll)
-    (test-partition-when even? coll)
-    (test-partition-when odd? coll)
-    (test-empty coll))
-  (let [coll ()]
+  (doseq [coll (list () [1] (range 100))]
     (test-take-nth coll)
     (test-drop-nth coll)
     (test-partition-when even? coll)
     (test-partition-when odd? coll)
     (test-empty coll)))
-
-    
-
   
 (deftest thresholds
   (let [coll (range 100)]

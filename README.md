@@ -10,7 +10,7 @@ Playing around with Clojure transducers.
 
 
 
-![Transmuter from Catspaw](transmuter.png "Transmuter")
+![Transmuter from Catspaw](transmuter.jpg "Transmuter")
 
 
 ## License
