@@ -109,3 +109,14 @@
            (sequence (filter (zmod 3)) coll)
            (sequence (take-nth 3) coll)))))
         
+(deftest while-accumulating
+  ;; distinct
+  (is (= (into [] (take-while-accumulating conj #{} (complement contains?)) '(1 2 3 4 2 5 6))
+         [1 2 3 4]))
+  ;; dedupe
+  (is (= (into [] (take-while-accumulating (farg 2) ::void not=) '(1 2 1 3 4 4 5 6))
+         [1 2 1 3 4]))
+  ;; monotonically increasing
+  (is (= (into [] (take-while-accumulating max 0 <=) '(1 2 3 4 4 1 5 6))
+         [1 2 3 4 4])))
+

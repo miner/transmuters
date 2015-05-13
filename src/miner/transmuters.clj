@@ -1,5 +1,48 @@
 (ns miner.transmuters)
 
+
+
+
+(defn queue
+  ([] clojure.lang.PersistentQueue/EMPTY)
+  ([coll] (reduce conj clojure.lang.PersistentQueue/EMPTY coll)))
+
+
+;; app - helper for handling variadic functions in transducers...
+;;   (map (app max))
+;;
+;; looks a bit nicer than any of these:
+;;   (map #(apply max %))
+;;   (map (partial apply max))
+;;   (map (fn [args] (apply max args)))
+
+;; "app" is shortened "apply", somewhat mnemonic.  Looks good in a transducer sequence.
+
+(defn app
+  "Similar to `partial`, but for use a variadic function.  Takes variadic `f` and any number
+  of fixed arguments.  Returns a function that takes a collection as its single argument and
+  applies `f` to the concatenation of the fixed arguments and the collection argument."
+  ([f] (fn [args] (apply f args)))
+  ([f a] (fn [args] (apply f a args)))
+  ([f a b] (fn [args] (apply f a b args)))
+  ([f a b c] (fn [args] (apply f a b c args)))
+  ([f a b c & more] (fn [args] (apply f a b c (concat more args)))))
+
+
+;; numbering scheme follows anonymous function notation
+(defn farg
+  "Returns a function that simply returns its Nth arg.  The first arg is position 1, which
+  is the default."
+  ([] (farg 1))
+  ([n] (fn
+         ([] nil)
+         ([a] (case n 1 a nil))
+         ([a b] (case n 1 a 2 b nil))
+         ([a b c] (case n 1 a 2 b 3 c nil))
+         ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) nil))))))
+
+
+
 ;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
 ;; empty list)
 
@@ -236,23 +279,40 @@
 
 
 
-;; app - helper for handling variadic functions in transducers...
-;;   (map (app max))
-;;
-;; looks a bit nicer than any of these:
-;;   (map #(apply max %))
-;;   (map (partial apply max))
-;;   (map (fn [args] (apply max args)))
+(defn remove-once
+  ([pred] (chain (take-while (complement pred)) identity))
+  ([pred coll]
+   (let [[head tail] (split-with (complement pred) coll)]
+     (concat head (rest tail)))))
 
-;; "app" is shortened "apply", somewhat mnemonic.  Looks good in a transducer sequence.
 
-(defn app
-  "Similar to `partial`, but for use a variadic function.  Takes variadic `f` and any number
-  of fixed arguments.  Returns a function that takes a collection as its single argument and
-  applies `f` to the concatenation of the fixed arguments and the collection argument."
-  ([f] (fn [args] (apply f args)))
-  ([f a] (fn [args] (apply f a args)))
-  ([f a b] (fn [args] (apply f a b args)))
-  ([f a b c] (fn [args] (apply f a b c args)))
-  ([f a b c & more] (fn [args] (apply f a b c (concat more args)))))
+;; generalized take-while
+(defn take-while-accumulating [accf init pred2]
+  "Similar to take-while, but tests with an internal 'accumulation' state and the incoming
+   input.  accf is like a reducing function: it takes two args, state and input, and returns
+   new state of the “accumulation”.  init is the initial state of the accumulation.  pred2
+   is a predicate taking two args, the accumulation state and the new input.  The process
+   stops when pred2 returns false."
+   (fn [rf]
+     (let [vstate (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (pred2 @vstate input)
+            (do (vswap! vstate accf input)
+                (rf result input))
+            (reduced result)))))))
 
+;; "until" just complements the predicate
+(defn take-until-accumulating [accf init pred2]
+  (take-while-accumulating accf init (complement pred2)))
+
+;; think about drop-while-accumulating
+
+#_ (defn rolling-window [f init]
+     ;; NOT IMPLMENTED YET
+  "f takes a single argument, which should be a sequence.  init is the initial sequence.  A
+  queue of the same size as init is maintained by pushing from the input sequence and
+  popping the old (first) value off the queue."
+  )
