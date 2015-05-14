@@ -32,14 +32,17 @@
 ;; numbering scheme follows anonymous function notation
 (defn farg
   "Returns a function that simply returns its Nth arg.  The first arg is position 1, which
-  is the default."
-  ([] (farg 1))
-  ([n] (fn
-         ([] nil)
-         ([a] (case n 1 a nil))
-         ([a b] (case n 1 a 2 b nil))
-         ([a b c] (case n 1 a 2 b 3 c nil))
-         ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) nil))))))
+  is the default.  If there is no corresponding arg, the default-value is returned, which
+  defaults to nil."
+  ([] (farg 1 nil))
+  ([n] (farg n nil))
+  ([n default-value]
+   (fn
+     ([] default-value)
+     ([a] (case n 1 a default-value))
+     ([a b] (case n 1 a 2 b default-value))
+     ([a b c] (case n 1 a 2 b 3 c default-value))
+     ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) default-value))))))
 
 
 
