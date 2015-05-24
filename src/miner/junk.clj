@@ -289,3 +289,92 @@
 ;; user=> (sequence (take-then 4 (comp dec sq)) (range 20))
 ;; (0 1 2 3 15 24 35 48 63 80 99 120 143 168 195 224 255 288 323 360)
 
+
+;; Subsumed by general latch
+(defn latch-when [pred]
+  "Stateful transducer that latches onto the first input that satisfies pred, then repeats
+  that value until the input stream ends."
+  (fn [rf]
+    (let [iv (volatile! ::none)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (let [v @iv]
+           (if (identical? v ::none)
+             (if (pred input)
+               (do (vreset! iv input)
+                   (rf result input))
+               result)
+             (rf result v))))))))
+
+
+
+;; I tried a few ideas, but bottom line is that no rationalization trumps backwards
+;; compatibility.  We cannot change (take-nth 0 coll) at this point.  
+
+;; I'm changing my mind about (take-nth 0).  Could argue that it should be same as first.
+
+;; I think (take-nth 0) should always be the empty list.
+;; This is a change from the way it works in Clojure 1.6.
+;; Clojure 1.7.0-alpha5 throws on (take-nth 0), mine gives a transducer that will return ().
+;; See also http://dev.clojure.org/jira/browse/CLJ-1665
+(defn my-take-nth-zero-empty
+  "Returns a lazy seq of every nth item in coll.  Returns a stateful
+  transducer when no collection is provided.  N=0 returns empty list."
+  {:static true}
+  ([n]
+   (if (zero? n)
+     (fn [rf]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input] (ensure-reduced result))))
+     (fn [rf]
+       (let [iv (volatile! 1)]
+         (fn
+           ([] (rf))
+           ([result] (rf result))
+           ([result input]
+              (let [i (vswap! iv dec)]
+                (if (zero? i)
+                  (do (vreset! iv n)
+                      (rf result input))
+                  result))))))))
+  ([n coll]
+   ;; really should test (not (pos? n))
+   (if (zero? n)
+     ()
+     (lazy-seq
+      (when-let [s (seq coll)]
+        (cons (first s) (my-take-nth-zero-empty n (drop n s))))))))
+
+
+
+;; Sorry, no good, can't be backwards incompatible on standard version!
+;; Not official 1.6 compatible, but better with N=0 (takes just first item)
+(defn my01-take-nth
+  "Returns a lazy seq of the first element and every nth element thereafter in coll.
+  Returns a stateful transducer when no collection is provided.  If N is not positive,
+  returns a sequence with just the first item from coll."
+  {:static true}
+  ([n]
+   (if-not (pos? n)
+     (take 1)
+     (fn [rf]
+       (let [iv (volatile! 1)]
+         (fn
+           ([] (rf))
+           ([result] (rf result))
+           ([result input]
+            (let [i (vswap! iv dec)]
+              (if (zero? i)
+                (do (vreset! iv n)
+                    (rf result input))
+                result))))))))
+  ([n coll]
+   (lazy-seq
+    (when-let [s (seq coll)]
+      (if-not (pos? n)
+        (list (first coll))
+        (cons (first s) (my01-take-nth n (drop n s))))))))

@@ -1,6 +1,21 @@
 (ns miner.transmuters)
 
+;; Just playing around with transducers, new in Clojure 1.7.
 
+
+;; By the way, I don't like the signature of the new `eduction` ([xform* coll]).  It's strange
+;; to take multiple xforms and then one trailing coll.  Normally, multiple whatevers would
+;; go last, after some fixed number of args.  The counter-argument (per RH) is that these sorts of
+;; functions take the collection as the last arg.  I know I can't win on this one, but I can
+;; write my own little function.
+
+(defn xduction [coll & xfs]
+  "Variant of eduction that takes the coll as first arg, the rest are transducers"
+  (->Eduction (apply comp xfs) coll))
+
+;; simple source transfomation:
+;; (->> (range 50) (take-nth 3) (filter even?))
+;; (xduction (range 50) (take-nth 3) (filter even?))
 
 
 (defn queue
@@ -51,13 +66,40 @@
 
 ;; But beware, it will consume one input in a chain even though nothing results.
 (defn xempty
-  "Like empty, but no-arg yields degenerate transducer that alway returns empty list"
+  "Transducer variant of empty."
   ([] (fn [rf]
        (fn
          ([] (rf))
          ([result] (rf result))
          ([result input] (ensure-reduced result)))))
   ([coll] (empty coll)))
+
+
+(defn xlast
+  "Stateful transducer variant of last."
+  ([]
+   (fn [rf]
+     (let [xv (volatile! ::none)]
+       (fn
+         ([] (rf))
+         ([result] (let [x @xv]
+                     (if (identical? x ::none)
+                       (rf result)
+                       (rf (rf result x)))))
+         ([result input]
+          (vreset! xv input)
+          result)))))
+  ([coll] (list (last coll))))
+
+(defn xfirst
+  "Transducer variant of first."
+  ([] (fn [rf]
+        (fn
+          ([] (rf))
+          ([result] (rf result))
+          ([result input] (ensure-reduced (rf result input))))))
+  ([coll] (list (first coll))))
+
 
 
 ;; Transducers support early termination using (reduced ...). Some of those early
@@ -123,54 +165,129 @@
                   res)))
             (ensure-reduced result))))))))
 
-;; I think (take-nth 0) should always be the empty list.
-;; This is a change from the way it works in Clojure 1.6.
-;; Clojure 1.7.0-alpha5 throws on (take-nth 0), mine gives a transducer that will return ().
-;; See also http://dev.clojure.org/jira/browse/CLJ-1665
-(defn my-take-nth
-  "Returns a lazy seq of every nth item in coll.  Returns a stateful
-  transducer when no collection is provided.  N=0 returns empty list."
-  {:static true}
-  ([n]
-   (if (zero? n)
-     (fn [rf]
+(defn latch
+  "Stateful transducer that latches onto an input if it satisfies pred.  Any input received
+  before that is ignored, producing no result.  Once a value is latched, it repeats as the
+  result value for subsequent input until some input satisifies reset-pred, resetting the
+  latch.  The default reset-pred is (constantly false).  The default pred is identity, which
+  naturally latches onto the first input."
+  ([] (latch identity))
+  ([pred] (latch pred (constantly false)))
+  ([pred reset-pred]
+   (fn [rf]
+     (let [xv (volatile! ::none)]
        (fn
          ([] (rf))
          ([result] (rf result))
-         ([result input] (ensure-reduced result))))
+         ([result input]
+          (let [x @xv]
+            (if (identical? x ::none)
+              (if (pred input)
+                (do (vreset! xv input)
+                    (rf result input))
+                result)
+              (if (reset-pred input)
+                (do (vreset! xv ::none)
+                    result)
+                (rf result x))))))))))
+
+
+;; sort of a filter with state
+(defn switch
+  "Stateful transducer that activates when an input satisfies pred, and deactivates when an
+  input satisfies pred-reset.  When in the active state, input values are returned in the
+  results.  When deactivated, no results are produced.  The default pred-reset is
+  (constantly false), in effect a one-shot switch."
+  ([pred] (switch pred (constantly false)))
+  ([pred pred-reset]
+  (fn [rf]
+    (let [vactive (volatile! false)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+           (if @vactive
+             (if (pred-reset input)
+               (do (vreset! vactive false)
+                   result)
+               (rf result input))
+             (if (pred input)
+               (do (vreset! vactive true)
+                   (rf result input))
+               result))))))))
+
+(defn counter
+  "Stateful transducer that latches onto an input if it satisfies pred.  Any input received
+  before that is ignored, producing no result.  Once a value is latched, it repeats as the
+  result value for subsequent input until some input satisifies pred-reset, resetting the
+  latch.  The default pred-reset is (constantly false).  The default pred is identity, which
+  naturally latches onto the first input."
+  ([] (counter identity))
+  ([pred]
+   (fn [rf]
+     (let [nv (volatile! 0)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (if (pred input)
+           (let [n (vswap! nv inc)]
+             (rf result n))
+           (rf result false))))))))
+
+
+;; SEM other similar ideas:
+;; counter (returns number of times pred has been satisifed)
+;; transitor pred decides to turn on or off or amplifiy signal -- isn't that just map?
+;; What's a three-terminal analogue to a signal processing device?
+
+
+;; almost matching behavior, but transducer returns finite (instead of infinite) list on
+;; N=0.  Treats neg N like 0, which is more like collection version, although there's still
+;; the finite vs. infinite issue.
+(defn my-take-nth
+  "Returns a lazy seq of the first item and every nth item thereafter in coll.
+  Returns a stateful transducer when no collection is provided.  If N is not positive,
+  returns a infinite sequence of first item in coll."  
+  {:static true}
+  ([n]
+   (if-not (pos? n)
+     (latch)
      (fn [rf]
        (let [iv (volatile! 1)]
          (fn
            ([] (rf))
            ([result] (rf result))
            ([result input]
-              (let [i (vswap! iv dec)]
-                (if (zero? i)
-                  (do (vreset! iv n)
-                      (rf result input))
-                  result))))))))
+            (let [i (vswap! iv dec)]
+              (if (zero? i)
+                (do (vreset! iv n)
+                    (rf result input))
+                result))))))))
+  ;; standard
   ([n coll]
-   (if (zero? n)
-     ()
-     (lazy-seq
-      (when-let [s (seq coll)]
-        (cons (first s) (my-take-nth n (drop n s))))))))
+   (lazy-seq
+    (when-let [s (seq coll)]
+      (cons (first s) (my-take-nth n (drop n s)))))))
 
+(defn repeat-nth [n]
+  (comp (drop (dec n)) (latch)))
+  
 
 (defn- lazy-drop-nth [n coll]
   ;; assumes (pos? n)
-  ;; Notice drops first (aiming to be complement of take-nth)
+  ;; Notice: drops first, and every nth after.  Goal is to be complement of take-nth.
   (lazy-seq
    (when-let [s (seq coll)]
      (concat (take (dec n) (rest s)) (lazy-drop-nth n (drop n s))))))
 
 (defn drop-nth
   "Returns a lazy seq dropping the first and every nth item thereafter in coll.  Returns a stateful
-  transducer when no collection is provided.  N=0 returns the coll."
+  transducer when no collection is provided.  When N <= 0, returns the (rest coll)."
   {:static true}
   ([n]
-   (if (zero? n)
-     conj
+   (if-not (pos? n)
+     (drop 1)
      (fn [rf]
        (let [iv (volatile! 1)]
          (fn
@@ -183,8 +300,8 @@
                       result)
                   (rf result input)))))))))
   ([n coll]
-   (if (zero? n)
-     (lazy-seq coll)
+   (if-not (pos? n)
+     (lazy-seq (rest coll))
      (lazy-drop-nth n coll))))
 
 
@@ -313,9 +430,22 @@
 
 ;; think about drop-while-accumulating
 
-#_ (defn rolling-window [f init]
-     ;; NOT IMPLMENTED YET
-  "f takes a single argument, which should be a sequence.  init is the initial sequence.  A
-  queue of the same size as init is maintained by pushing from the input sequence and
-  popping the old (first) value off the queue."
-  )
+
+;; xwindow is similar to a (comb (map f) (partition-all' N 1)) -- if you could use a step = 1.  The
+;; actuall partition-all transducer does not support a step arg.  And the ending is
+;; different than partition-all which would step through shrinking partitions at the end.
+;; xwindow returns one value for each input.
+
+(defn xwindow [f init]
+  "For each input, returns the result of applying f to an internal queue of values.  The
+  internal queue is initialized to init, and updated by pushing the input onto the
+  queue and popping the oldest (first) value off.  The function f is called on the new value
+  of the queue, returning the result."
+  (fn [rf]
+     (let [qv (volatile! (queue init))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [q (vswap! qv #(conj (pop %) %2) input)]
+            (rf result (f q))))))))
