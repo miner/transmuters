@@ -22,6 +22,15 @@
   ([] clojure.lang.PersistentQueue/EMPTY)
   ([coll] (reduce conj clojure.lang.PersistentQueue/EMPTY coll)))
 
+;; (assert (pos? limit))
+;; (assert (instance? clojure.lang.PersistentQueue q))
+(defn push
+  ([q x] (conj q x))
+  ([q limit x]
+   (if (>= (count q) limit)
+     (recur (pop q) limit x)
+     (conj q x))))
+
 
 ;; app - helper for handling variadic functions in transducers...
 ;;   (map (app max))
@@ -29,7 +38,7 @@
 ;; looks a bit nicer than any of these:
 ;;   (map #(apply max %))
 ;;   (map (partial apply max))
-;;   (map (fn [args] (apply max args)))
+;;   (map (fn [coll] (apply max coll)))
 
 ;; "app" is shortened "apply", somewhat mnemonic.  Looks good in a transducer sequence.
 
@@ -37,11 +46,19 @@
   "Similar to `partial`, but for use a variadic function.  Takes variadic `f` and any number
   of fixed arguments.  Returns a function that takes a collection as its single argument and
   applies `f` to the concatenation of the fixed arguments and the collection argument."
-  ([f] (fn [args] (apply f args)))
-  ([f a] (fn [args] (apply f a args)))
-  ([f a b] (fn [args] (apply f a b args)))
-  ([f a b c] (fn [args] (apply f a b c args)))
-  ([f a b c & more] (fn [args] (apply f a b c (concat more args)))))
+  ([f] (fn [coll] (apply f coll)))
+  ([f a] (fn [coll] (apply f a coll)))
+  ([f a b] (fn [coll] (apply f a b coll)))
+  ([f a b c] (fn [coll] (apply f a b c coll)))
+  ([f a b c & more] (fn [coll] (apply f a b c (concat more coll)))))
+
+(defn appmap
+  "variant of map-map, helper for transducing functions that map across an input (collection)"
+  ([f] (fn [coll] (map f coll)))
+  ([f a] (fn [coll] (map f a coll)))
+  ([f a b] (fn [coll] (map f a b coll)))
+  ([f a b c] (fn [coll] (map f a b c coll)))
+  ([f a b c & more] (fn [coll] (apply map f a b c (concat more (list coll))))))
 
 
 ;; numbering scheme follows anonymous function notation
@@ -431,21 +448,57 @@
 ;; think about drop-while-accumulating
 
 
-;; xwindow is similar to a (comb (map f) (partition-all' N 1)) -- if you could use a step = 1.  The
-;; actuall partition-all transducer does not support a step arg.  And the ending is
-;; different than partition-all which would step through shrinking partitions at the end.
-;; xwindow returns one value for each input.
+;; SEM: FIX ME -- all uses of queue maybe should be replaced by a Java LinkedList for
+;; better performance, less garbage.  Worth measuring, anyway.  But... it complicates the
+;; implementation, so I'm not doing it yet.  Be careful about Java collections that don't
+;; allow null elements.  ArrayDeque doesn't allow null.
 
-(defn xwindow [f init]
-  "For each input, returns the result of applying f to an internal queue of values.  The
-  internal queue is initialized to init, and updated by pushing the input onto the
-  queue and popping the oldest (first) value off.  The function f is called on the new value
-  of the queue, returning the result."
-  (fn [rf]
+
+
+;; slide is like a step=1 partition (as opposed to partition-all)
+;; if you want a different step size, compose with take-nth
+;;   (comp (partitions 3) (take-nth 3)) -- similar to partion (but not -all)
+;; internal queue is initialized to init (default [])
+
+;; (partition-all 4 1 (range 5))
+;;=> ((0 1 2 3) (1 2 3 4) (2 3 4) (3 4) (4))
+;; (partition 4 1 (range 5))
+;;=> ((0 1 2 3) (1 2 3 4))
+;; (sequence (slide 4) (range 5))
+;;=> ((0 1 2 3) (1 2 3 4))
+
+
+;; was partitions
+;; (assert (pos? n))
+(defn slide
+  ([n] (slide n []))
+  ([n init]
+   (fn [rf]
      (let [qv (volatile! (queue init))]
        (fn
          ([] (rf))
          ([result] (rf result))
          ([result input]
-          (let [q (vswap! qv #(conj (pop %) %2) input)]
-            (rf result (f q))))))))
+          (let [q (vswap! qv push n input)]
+            (if (< (count q) n)
+              result
+              (rf result (seq q))))))))))
+
+;; transducer version of reductions, slightly different regarding required init, and no
+;; output for init
+(defn accumulations [accf init]
+  (fn [rf]
+    (let [state (volatile! init)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (rf result (vswap! state accf input)))))))
+
+(defn convolve [kernel]
+  (comp (slide (count kernel)) (map (appmap * kernel)) (map (app +))))
+
+
+;; IDEA: a transducer that takes its parameters from the input.  Kind of mixing control and
+;; signal, but it might be useful.
+

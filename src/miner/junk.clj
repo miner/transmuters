@@ -378,3 +378,86 @@
       (if-not (pos? n)
         (list (first coll))
         (cons (first s) (my01-take-nth n (drop n s))))))))
+
+
+(defn *+ [xs ys]
+  (reduce + (map * xs ys)))
+
+(defn convolve [kernel]
+  (recentn (partial *+ kernel) (count kernel)))
+
+(defn xconv [kernel]
+  (comp (partitions (count kernel)) (map #(map * kernel %1)) (map (app +)) ))
+
+
+(defn calln [f n]
+  "For each input, returns the result of applying f to an internal queue of values.  The
+  internal queue is initialized to the first N inputs.  Once the count of N is reached, a
+  result will be produced by calling f on the value of the internal queue of N values.  As
+  each new input comes in, the queue is updated by pushing the input onto the
+  queue and popping the oldest (first) value off before calling f."
+  (fn [rf]
+     (let [qv (volatile! (queue))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [q (vswap! qv push n input)]
+            (if (< (count q) n)
+              result
+              (rf result (f q)))))))))
+
+;; probably better to comp partitions and map
+
+(defn recentn [f n]
+  "For each input, returns the result of applying f to an internal queue of values.  The
+  internal queue is initialized to the first N inputs.  Once the count of N is reached, a
+  result will be produced by calling f on the value of the internal queue of N values.  As
+  each new input comes in, the queue is updated by pushing the input onto the
+  queue and popping the oldest (first) value off before calling f."
+  (fn [rf]
+     (let [qv (volatile! (queue))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [q (vswap! qv push n input)]
+            (if (< (count q) n)
+              result
+              (rf result (f q)))))))))
+
+;; don't need f, just comp accumulations with map
+(defn accumulating [accf init f]
+  (fn [rf]
+    (let [vstate (volatile! init)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (rf result (f (vswap! vstate accf input))))))))
+
+
+;; xwindow is similar to a (comp (map f) (partition-all' N 1)) -- if you could use a step = 1.  The
+;; actual partition-all transducer does not support a step arg.  Actually, the end of the
+;; result sequence is more like regular (partition N 1) as it ends with the last full partition.
+
+;; (partition-all 4 1 (range 5))
+;;=> ((0 1 2 3) (1 2 3 4) (2 3 4) (3 4) (4))
+;; (partition 4 1 (range 5))
+;;=> ((0 1 2 3) (1 2 3 4))
+;; (drop 3 (sequence (xwindow seq [0 0 0 0]) (range 5)))
+;;=> ((0 1 2 3) (1 2 3 4))
+
+(defn xwindow [f init]
+  "For each input, returns the result of applying f to an internal queue of values.  The
+  internal queue is initialized to init, and updated by pushing the input onto the
+  queue and popping the oldest (first) value off.  The function f is called on the new value
+  of the queue, returning the result."
+  (fn [rf]
+     (let [qv (volatile! (queue init))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [q (vswap! qv #(conj (pop %) %2) input)]
+            (rf result (f q))))))))
