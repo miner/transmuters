@@ -1,7 +1,7 @@
 (ns miner.transmuters)
 
 ;; Just playing around with transducers, new in Clojure 1.7.
-
+;; http://clojure.org/transducers
 
 ;; By the way, I don't like the signature of the new `eduction` ([xform* coll]).  It's strange
 ;; to take multiple xforms and then one trailing coll.  Normally, multiple whatevers would
@@ -30,7 +30,6 @@
    (if (>= (count q) limit)
      (recur (pop q) limit x)
      (conj q x))))
-
 
 ;; app - helper for handling variadic functions in transducers...
 ;;   (map (app max))
@@ -68,7 +67,7 @@
   defaults to nil."
   ([] (farg 1 nil))
   ([n] (farg n nil))
-  ([n default-value]
+  ([^long n default-value]
    (fn
      ([] default-value)
      ([a] (case n 1 a default-value))
@@ -234,23 +233,17 @@
                result))))))))
 
 (defn counter
-  "Stateful transducer that latches onto an input if it satisfies pred.  Any input received
-  before that is ignored, producing no result.  Once a value is latched, it repeats as the
-  result value for subsequent input until some input satisifies pred-reset, resetting the
-  latch.  The default pred-reset is (constantly false).  The default pred is identity, which
-  naturally latches onto the first input."
   ([] (counter identity))
   ([pred]
    (fn [rf]
      (let [nv (volatile! 0)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (if (pred input)
-           (let [n (vswap! nv inc)]
-             (rf result n))
-           (rf result false))))))))
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (pred input)
+            (rf result (vswap! nv inc))
+            (rf result false))))))))
 
 
 ;; SEM other similar ideas:
@@ -448,13 +441,6 @@
 ;; think about drop-while-accumulating
 
 
-;; SEM: FIX ME -- all uses of queue maybe should be replaced by a Java LinkedList for
-;; better performance, less garbage.  Worth measuring, anyway.  But... it complicates the
-;; implementation, so I'm not doing it yet.  Be careful about Java collections that don't
-;; allow null elements.  ArrayDeque doesn't allow null.
-
-
-
 ;; slide is like a step=1 partition (as opposed to partition-all)
 ;; if you want a different step size, compose with take-nth
 ;;   (comp (partitions 3) (take-nth 3)) -- similar to partion (but not -all)
@@ -467,8 +453,7 @@
 ;; (sequence (slide 4) (range 5))
 ;;=> ((0 1 2 3) (1 2 3 4))
 
-
-;; was partitions
+;; was called partitions, now slide
 ;; (assert (pos? n))
 (defn slide
   ([n] (slide n []))
@@ -483,6 +468,7 @@
             (if (< (count q) n)
               result
               (rf result (seq q))))))))))
+
 
 ;; transducer version of reductions, slightly different regarding required init, and no
 ;; output for init
@@ -502,3 +488,6 @@
 ;; IDEA: a transducer that takes its parameters from the input.  Kind of mixing control and
 ;; signal, but it might be useful.
 
+;; ISSUE: some of my transducers are making little collections along the way just so they
+;; can be processed by the next step.  Can we instead subtransduce?  And avoid making the
+;; little collections along the way?

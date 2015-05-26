@@ -461,3 +461,63 @@
          ([result input]
           (let [q (vswap! qv #(conj (pop %) %2) input)]
             (rf result (f q))))))))
+
+
+;; slower than my push
+(defn push-not-so-good
+  ([q x] (conj q x))
+  ([q limit x]
+   (let [^long pops (- (count q) (inc limit))]
+     (loop [q q pops pops]
+       (if (pos? pops)
+         (recur (pop q) (dec pops))
+         (conj q x))))))
+
+
+;; Idea was to change queue to a Java LinkedList for
+;; better performance, less garbage.  But it did perform any better.  Be careful about other
+;; Java collections that don't allow null elements.  ArrayDeque doesn't allow null.
+
+;; not any faster, but obviously more complicated to use LinkedList instead of queue
+(defn slider
+  ([n] (slider n []))
+  ([n init]
+   (fn [rf]
+     (let [ll (java.util.LinkedList. init)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [drops (- (.size ll) (dec n))]
+            (dotimes [_ drops]
+              (.remove ll))
+            (.add ll input)
+            (if (neg? drops)
+              result
+              (rf result (doall (seq ll)))))))))))
+
+
+(defn qpop [q pops]
+  (if (pos? pops)
+    (recur (pop q) (dec pops))
+    q))
+
+
+;; slide2 was slightly faster than slide, but I think the code is less clear so it's not
+;; worth the small difference in performance.
+
+(defn slide2
+  ([n] (slide2 n []))
+  ([n init]
+   (fn [rf]
+     (let [qv (volatile! (queue init))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          ;; like a C hacker
+          (let [pops (- (count (vswap! qv conj input)) n)]
+            (if (neg? pops)
+              result
+              (rf result (seq (vswap! qv qpop pops)))))))))))
+
