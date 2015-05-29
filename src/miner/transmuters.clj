@@ -3,30 +3,16 @@
 ;; Just playing around with transducers, new in Clojure 1.7.
 ;; http://clojure.org/transducers
 
-;; By the way, I don't like the signature of the new `eduction` ([xform* coll]).  It's strange
-;; to take multiple xforms and then one trailing coll.  Normally, multiple whatevers would
-;; go last, after some fixed number of args.  The counter-argument (per RH) is that these sorts of
-;; functions take the collection as the last arg.  I know I can't win on this one, but I can
-;; write my own little function.
-
-(defn xduction [coll & xfs]
-  "Variant of eduction that takes the coll as first arg, the rest are transducers"
-  (->Eduction (apply comp xfs) coll))
-
-;; simple source transfomation:
-;; (->> (range 50) (take-nth 3) (filter even?))
-;; (xduction (range 50) (take-nth 3) (filter even?))
-
-
 (defn queue
   ([] clojure.lang.PersistentQueue/EMPTY)
   ([coll] (reduce conj clojure.lang.PersistentQueue/EMPTY coll)))
 
-;; (assert (pos? limit))
-;; (assert (instance? clojure.lang.PersistentQueue q))
+;; q clojure.lang.PersistentQueue
 (defn push
+  "Push x onto PersistentQueue q, popping q as necessary to keep count <= limit"
   ([q x] (conj q x))
   ([q limit x]
+   ;; {:pre [(pos? limit)]}
    (if (>= (count q) limit)
      (recur (pop q) limit x)
      (conj q x))))
@@ -58,7 +44,6 @@
   ([f a b] (fn [coll] (map f a b coll)))
   ([f a b c] (fn [coll] (map f a b c coll)))
   ([f a b c & more] (fn [coll] (apply map f a b c (concat more (list coll))))))
-
 
 ;; numbering scheme follows anonymous function notation
 (defn farg
@@ -491,3 +476,20 @@
 ;; ISSUE: some of my transducers are making little collections along the way just so they
 ;; can be processed by the next step.  Can we instead subtransduce?  And avoid making the
 ;; little collections along the way?
+
+;; ----------------------------------------------------------------------
+;; By the way, I don't like the signature of the new `eduction` ([xform* coll]).  It's strange
+;; to take multiple xforms and then one trailing coll.  Normally, multiple whatevers would
+;; go last, after some fixed number of args.  The counter-argument (per RH) is that these sorts of
+;; functions take the collection as the last arg.  I know I can't win on this one, but I can
+;; write my own little function.
+
+(defn xduction [coll & xfs]
+  "Variant of eduction that takes the coll as first arg, the rest are transducers"
+  (->Eduction (apply comp xfs) coll))
+
+;; simple source transfomation:
+;; (->> (range 50) (take-nth 3) (filter even?))
+;; (xduction (range 50) (take-nth 3) (filter even?))
+
+
