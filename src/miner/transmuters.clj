@@ -336,8 +336,7 @@
   ([f coll]
   (lazy-seq
    (when-let [s (seq coll)]
-     (let [fst (first s)
-           run (cons fst (take-while #(not (f %)) (next s)))]
+     (let [run (cons (first s) (take-while #(not (f %)) (next s)))]
        (cons run (partition-when f (seq (drop (count run) s)))))))))
 
 
