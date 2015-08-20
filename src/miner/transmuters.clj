@@ -60,8 +60,6 @@
      ([a b c] (case n 1 a 2 b 3 c default-value))
      ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) default-value))))))
 
-
-
 ;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
 ;; empty list)
 

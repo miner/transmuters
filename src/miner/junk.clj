@@ -521,3 +521,49 @@
               result
               (rf result (seq (vswap! qv qpop pops)))))))))))
 
+
+
+;; Related to power-limit
+;; http://gearon.blogspot.com/2015/02/tweaking-power-limit.html
+
+(defn fixed-point
+  ([f] (fixed-point f 0))
+  ([f guess] (fixed-point f guess 1000))
+  ([f guess limit] (fixed-point f guess limit =))
+  ([f guess limit eq?]
+   (when (pos? limit)
+     (let [guess' (f guess)]
+       (if (eq? guess' guess)
+         guess
+         (recur f guess' (dec limit) eq?))))))
+
+
+;; Rejected version that ensure-reduced on first duplicate.
+;; Not so natural to return a sequence of one item.  But we only care about the last for
+;; finding the duplicate.  Maybe should return all not repeating until the duplicate?  Or
+;; just use the fixed-point function above.
+
+
+;; Variant that returns only duplicates, but all of them.  Naturally, won't terminate on an
+;; infinite input stream.  (iterate F 0) will hang.
+
+;; sorta inverse of de-dupe
+(defn dupe
+  "Returns a sequence of items that were repeated consecutively.  Returns a transducer when no
+  collection is provided."
+  ([]
+   (fn [rf]
+     (let [pv (volatile! ::none)
+           rv (volatile! false)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [prior @pv
+                run? @rv]
+            (vreset! pv input)
+            (if (and (vreset! rv (= prior input)) (not run?))
+                (rf result input)
+                result)))))))
+  ([coll] (sequence (dupe) coll)))
+
