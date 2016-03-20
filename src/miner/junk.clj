@@ -567,3 +567,237 @@
                 result)))))))
   ([coll] (sequence (dupe) coll)))
 
+
+
+
+;; CLJ-1903 has something like this as a patch.  Not written by me.
+;; proposed `reductions` transducer
+(defn reducts1
+   "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+   {:added "1.2"}
+  ([f] 
+   (fn [rf]
+     (let [state (volatile! (f))]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (reduced? @state)
+            @state
+            (rf result (unreduced (vswap! state f input)))))))))
+  ([f coll] (reductions f coll))
+  ([f init coll] (reductions f init coll)))
+
+
+;; SEM: I don't like the no-init version calling (f).  Also, of course, need the two-arg
+;; version to be [f init], which conflicts with (reductions f coll) so we need a new name.
+;; Maybe `reductions-with`.
+
+;; SEM: Issue with natural init, not convenient to force init as first output (see
+;; reductions).
+
+;; desire (= (reductions + 0 (range 10)) (sequence (reductions-with + 0) (range 10)))
+
+
+;; SEM hacking on this
+;; First, I want to control init.  That creates an arity conflict so don't want to use the
+;; reductions name for this as transducer.
+(defn reducts2
+   "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided.  If not init is given, (f) with no args will be
+  used."
+  ([f init]
+   (fn [rf]
+     (let [state (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [res (vswap! state f input)]
+            (if (reduced? res)
+              (ensure-reduced (rf result (unreduced res)))
+              (rf result res))))))))
+  ([f init coll] (reductions f init coll)))
+
+
+;; Trying to do the right thing with the init, but looks complicated.
+;; refactored below
+(defn reducts3
+   "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided.  If not init is given, (f) with no args will be
+  used."
+  ([f init]
+   (fn [rf]
+     (let [initialized? (volatile! false)
+           state (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [result (or (when-not @initialized?
+                             (vreset! initialized? true)
+                             (rf result @state))
+                           result)]
+            (let [res (vswap! state f input)]
+              (if (reduced? res)
+                (ensure-reduced (rf result (unreduced res)))
+                (rf result res)))))))))
+  ([f init coll] (reductions f init coll)))
+
+
+;; SEM what's preserving-reduced -- as in cat ???
+
+
+;; SEM what about reduced?  Shouldn't happen because no function
+(defn xhead [x]
+  ;; inserts x into result stream, then passes everything else along
+  (fn [rf]
+    (let [vflag (volatile! true)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (let [flag (when @vflag (vreset! vflag false) true)
+               res (if flag (rf result x) result)]
+             (rf res input)))))))
+
+(defn xtail [x]
+  ;; passes everything else along, and inserts x at end of result stream
+  (fn [rf]
+    (fn
+      ([] (rf))
+      ([result] (rf (rf result x)))
+      ([result input] (rf result input)))))
+
+;; based on preserving-reduced from clojure/core.clj
+(defn rfreduce [rf result xs]
+  (let [rrf (fn [r x] (let [ret (rf r x)] (if (reduced? ret) (reduced ret) ret)))]
+    (reduce rrf result xs)))
+
+(defn prepend [xs]
+  ;; inserts x into result stream, then passes everything else along
+  (fn [rf]
+    (let [vflag (volatile! true)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (let [flag (when @vflag (vreset! vflag false) true)
+               res (if flag (rfreduce rf result xs) result)]
+           (rf res input)))))))
+
+(defn append [xs]
+  ;; passes all input along unchanged, then inserts xs at end of result stream
+  (fn [rf]
+    (fn
+      ([] (rf))
+      ([result] (rfreduce rf result xs))
+      ([result input] (rf result input)))))
+
+
+;; (loop [r result ys (seq xs)] (if ys (recur (rf r (first ys)) (next ys)) r))
+
+
+;; Does the right thing with the init (as with reductions) by using xhead
+
+(defn reducts4a
+  "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+  ([f init] 
+   (comp (xhead init)
+         (fn [rf]
+           (let [state (volatile! init)]
+             (fn
+               ([] (rf))
+               ([result] (rf result))
+               ([result input]
+                (if (reduced? @state)
+                  @state
+                  (rf result (unreduced (vswap! state f input))))))))))
+  ([f init coll] (reductions f init coll)))
+
+
+(defn reducts
+  "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+  ([f init] 
+   (comp (xhead init)
+         (fn [rf]
+           (let [state (volatile! init)]
+             (fn
+               ([] (rf))
+               ([result] (rf result))
+               ([result input]
+                (let [res (vswap! state f input)]
+                  (if (reduced? res)
+                    (ensure-reduced (rf result @res))
+                    (rf result res)))))))))
+  ([f init coll] (reductions f init coll)))
+
+
+;; IDEA
+;; take-padding like take but pads if necessary to get full N
+
+;; NOTE: there are a bunch of bugs in the reducts above.  The main file has a fixed version.
+
+;; transducer version of reductions, slightly different regarding required init, and no
+;; output for init.
+
+;; But see `reducts` in main file for a better implementation with bugs fixes for handling
+;; reduced and does output init
+(defn accumulations [accf init]
+  (fn [rf]
+    (let [state (volatile! init)]
+      (fn
+        ([] (rf))
+        ([result] (rf result))
+        ([result input]
+         (rf result (vswap! state accf input)))))))
+
+
+
+
+;; don't use this
+(defn converge1-seq [f init]
+  (sequence (take-until2 peek=) (iterate f init)))
+
+;; SEM -- no, don't use this
+#_ (defn xconv-limit-seq-BAD
+  ([f init]
+   (sequence (take-until2 peek=) (iterate f init)))
+  ([f init limit]
+   (if limit
+     (let [res (into [] (comp (take (inc limit)) (take-until2 peek=)) (iterate f init))]
+       (if (<= (count res) limit)
+         res
+         (conj (pop res) :...)))
+     (xconv-limit-seq-BAD f init))))
+
+
+(defn reducts1a
+  "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+  ([f init]
+   (comp (fn [rf]
+           (let [state (volatile! init)]
+             (fn
+               ([] (rf))
+               ([result] (rf result))
+               ([result input]
+                (if (reduced? result)  ;; SEM not sure if necessary to check
+                  result
+                  (let [red (vswap! state f input)]
+                    (if (reduced? red)
+                      (ensure-reduced (rf result @red))
+                      (rf result red))))))))
+         (prepend [init])))
+  ([f init coll] (reductions f init coll)))
+
+

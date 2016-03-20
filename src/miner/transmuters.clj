@@ -3,6 +3,20 @@
 ;; Just playing around with transducers, new in Clojure 1.7.
 ;; http://clojure.org/transducers
 
+;; some other things to look at:
+;; https://github.com/cgrand/xforms
+
+;; specialized version of vswap! for handling long values, avoids reflection warning
+(defmacro vlswap!
+  "Non-atomically swaps the value of the volatile as if:
+   (apply f current-value-of-vol args). Returns the value that
+   was swapped in.  Requires that volatile always holds a long."
+  [vol f & args]
+  (let [v (with-meta vol {:tag 'clojure.lang.Volatile})
+        tagged (with-meta (gensym) {:tag 'long})]
+    `(let [~tagged (.deref ~v)] (long (.reset ~v (~f ~tagged ~@args))))))
+
+
 (defn queue
   ([] clojure.lang.PersistentQueue/EMPTY)
   ([coll] (reduce conj clojure.lang.PersistentQueue/EMPTY coll)))
@@ -45,6 +59,26 @@
   ([f a b c] (fn [coll] (map f a b c coll)))
   ([f a b c & more] (fn [coll] (apply map f a b c (concat more (list coll))))))
 
+
+;; SEM:  just to save a partial or #(f ...).  Not sure it's worth it.
+;; also specialize for single input (as opposed to sequence allow multiple inputs)
+;; transducer form of ->> macro
+(defn mapfn
+  ([f] (map f))
+  ([f a] (map #(f a %)))
+  ([f a b] (map #(f a b %)))
+  ([f a b c] (map #(f a b c %)))
+  ([f a b c & more] (map #(apply f a b c (concat more (list %))))))
+
+;; transducer cross between ->> and mapcat
+(defn mapcatfn
+  ([f] (mapcat f))
+  ([f a] (mapcat #(f a %)))
+  ([f a b] (mapcat #(f a b %)))
+  ([f a b c] (mapcat #(f a b c %)))
+  ([f a b c & more] (mapcat #(apply f a b c (concat more (list %))))))
+
+
 ;; numbering scheme follows anonymous function notation
 (defn farg
   "Returns a function that simply returns its Nth arg.  The first arg is position 1, which
@@ -60,8 +94,17 @@
      ([a b c] (case n 1 a 2 b 3 c default-value))
      ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) default-value))))))
 
+;; perhaps appropriate for testing, not practically useful
+(defn xpass [rf]
+  ;; identity/unit transducer, passes everything along without change
+  (fn
+    ([] (rf))
+    ([result] (rf result))
+    ([result input] (rf result input))))
+
+
 ;; xempty would make a convenient degenerate transducer that does nothing (ultimately returns
-;; empty list)
+;; empty list), not useful
 
 ;; But beware, it will consume one input in a chain even though nothing results.
 (defn xempty
@@ -73,7 +116,7 @@
          ([result input] (ensure-reduced result)))))
   ([coll] (empty coll)))
 
-
+;; not useful
 (defn xlast
   "Stateful transducer variant of last."
   ([]
@@ -90,6 +133,8 @@
           result)))))
   ([coll] (list (last coll))))
 
+;; xfirst is basically the same as (take 1) but maybe a little faster with less setup.
+;; Practical code should just use (take 1).
 (defn xfirst
   "Transducer variant of first."
   ([] (fn [rf]
@@ -109,7 +154,7 @@
 ;; Note that `pushback` is not a real transducer, but the `chain` fn handles it specially to
 ;; reuse the input with the next xform in the chain.  Obviously, it doesn't make sense to
 ;; use `pushback` as the first or last item in a transducer chain, or to have multiple
-;; pushbacks in a row.
+;; pushbacks in a row as the chain buffer is only one item deep.
 
 (defn pushback
   "A pseudo-transducer which indicates to `chain` that the same input should be re-used by the
@@ -123,7 +168,7 @@
 
 ;; SEM -- consider step with multiple results, then reduced.  Does that work?
 
-;; Issue -- not sure if (chain) should be like identity (just pass through) or maybe
+;; Issue -- not sure if (chain) should be like identity (same as conj just pass through) or maybe
 ;; terminate immediately (empty list).
 
 (defn chain
@@ -135,7 +180,8 @@
   chain to give that following transducer access to that item as its first input."
   {:static true}
 
-  ([] identity)
+  ;; conj is the identity chain transducer
+  ([] conj)
 
   ([xf] xf)
 
@@ -148,7 +194,7 @@
          ([result input]
           (if-let [xform (first @vxfs)]
             ;; treat initial or duplicate pushback as a no-op
-            (if (= xform ::pushback)
+            (if (identical? xform ::pushback)
               (do (vswap! vxfs next)
                   (recur result input))
               (let [res (xform result input)]
@@ -157,7 +203,7 @@
                 ;; the same input (typically after a take-while).
                 (if (reduced? res)
                   ;; completion with original xform
-                  (if (= (first (vswap! vxfs next)) ::pushback)
+                  (if (identical? (first (vswap! vxfs next)) ::pushback)
                     (do (vswap! vxfs next)
                         (recur (xform @res) input))
                     (xform @res))
@@ -225,7 +271,7 @@
          ([result] (rf result))
          ([result input]
           (if (pred input)
-            (rf result (vswap! nv inc))
+            (rf result (vlswap! nv inc))
             (rf result false))))))))
 
 
@@ -252,7 +298,7 @@
            ([] (rf))
            ([result] (rf result))
            ([result input]
-            (let [i (vswap! iv dec)]
+            (let [i (vlswap! iv dec)]
               (if (zero? i)
                 (do (vreset! iv n)
                     (rf result input))
@@ -287,7 +333,7 @@
            ([] (rf))
            ([result] (rf result))
            ([result input]
-              (let [i (vswap! iv dec)]
+              (let [i (vlswap! iv dec)]
                 (if (zero? i)
                   (do (vreset! iv n)
                       result)
@@ -366,7 +412,7 @@
             (rf result)))
          ([result input]
           (.add a input)
-          (let [score (vswap! vscore + (scoref input))]
+          (let [score (vlswap! vscore + (scoref input))]
             (if (>= score threshold)
               ;; push old, start new partition
               (let [v (vec (.toArray a))]
@@ -399,12 +445,14 @@
 
 
 ;; generalized take-while
-(defn take-while-accumulating [accf init pred2]
+(defn take-while2
   "Similar to take-while, but tests with an internal 'accumulation' state and the incoming
-   input.  accf is like a reducing function: it takes two args, state and input, and returns
-   new state of the “accumulation”.  init is the initial state of the accumulation.  pred2
-   is a predicate taking two args, the accumulation state and the new input.  The process
-   stops when pred2 returns false."
+  input.  accf is like a reducing function: it takes two args, state and input, and returns
+  new state of the “accumulation” (default: conj).  init is the initial state of the
+  accumulation (default: []).  pred2 is a predicate taking two args, the accumulation state
+  and the new input.  The process stops when pred2 returns false."
+  ([pred2] (take-while2 conj [] pred2))
+  ([accf init pred2]
    (fn [rf]
      (let [vstate (volatile! init)]
        (fn
@@ -414,11 +462,13 @@
           (if (pred2 @vstate input)
             (do (vswap! vstate accf input)
                 (rf result input))
-            (reduced result)))))))
+            (reduced result))))))))
 
 ;; "until" just complements the predicate
-(defn take-until-accumulating [accf init pred2]
-  (take-while-accumulating accf init (complement pred2)))
+(defn take-until2
+  ([pred2] (take-until2 conj [] pred2))
+  ([accf init pred2]
+   (take-while2 accf init (complement pred2))))
 
 ;; think about drop-while-accumulating
 
@@ -452,16 +502,6 @@
               (rf result (seq q))))))))))
 
 
-;; transducer version of reductions, slightly different regarding required init, and no
-;; output for init
-(defn accumulations [accf init]
-  (fn [rf]
-    (let [state (volatile! init)]
-      (fn
-        ([] (rf))
-        ([result] (rf result))
-        ([result input]
-         (rf result (vswap! state accf input)))))))
 
 (defn convolve [kernel]
   (comp (slide (count kernel)) (map (appmap * kernel)) (map (app +))))
@@ -481,12 +521,114 @@
 ;; functions take the collection as the last arg.  I know I can't win on this one, but I can
 ;; write my own little function.
 
-(defn xduction [coll & xfs]
+(defn xduction 
   "Variant of eduction that takes the coll as first arg, the rest are transducers"
+  [coll & xfs]
   (->Eduction (apply comp xfs) coll))
 
 ;; simple source transfomation:
 ;; (->> (range 50) (take-nth 3) (filter even?))
 ;; (xduction (range 50) (take-nth 3) (filter even?))
 
+
+
+
+;; IDEA: a transducer version of iterate
+;; (transfix xf f init)
+
+;; Conceptually, initial collection is (iterate f init)
+;; xf is transducer
+;; transfix is sequence or into []
+
+;; useful with take-while2 to find a duplicate
+(defn peek= 
+  "Tests equality of last element of vector with x"
+  [vector x]
+  (= (peek vector) x))
+
+;; SEM not sure about this one
+(defn transfix [xf f init]
+  (into [] xf (iterate f init)))
+
+(defn eager-converge-seq [f init]
+  (into [] (take-until2 peek=) (iterate f init)))
+
+(defn xunconverged
+  ;; if the remaining inputs aren't the same, cutoff and substitute marker (default :...)
+  ;; if they are the same, effectively nothing comes out
+  ;; I like the keyword :... because it's obviously weird and yet safe
+  ;; the symbol ... can cause problems re-evaluating (looks like field access)
+  ([] (xunconverged :...))
+  ([marker] (comp (take 2) (dedupe) (drop 1) (map (constantly marker)))))
+
+(defn converge-seq
+  ([f init]
+   (sequence (take-until2 peek=) (iterate f init)))
+  ([f init limit] (converge-seq f init limit :...))
+  ([f init limit marker]
+   (if limit
+     (sequence (chain (comp (take limit) (take-until2 peek=))
+                      pushback
+                      (xunconverged marker))
+               (iterate f init))
+     (converge-seq f init))))
+
+
+
+
+;; SEM init could be reduced? !!! need to check like reductions
+
+
+;; based on preserving-reduced from clojure/core.clj
+;; the extra level of `reduced` preserves the early termination value
+(defn rf-reduce [rf result xs]
+  (let [rrf (fn [r x] (let [ret (rf r x)] (if (reduced? ret) (reduced ret) ret)))]
+    (reduce rrf result xs)))
+
+(defn prepend [xs]
+  ;; effectively inserts xs sequentially into input stream before normal inputs
+  (fn [rf]
+    (let [vflag (volatile! true)]
+      (fn
+        ([] (rf))
+        ([result] (if @vflag (rf (rf-reduce rf result xs)) (rf result)))
+        ([result input]
+         (let [flag (when @vflag (vreset! vflag false) true)
+               res (if flag (rf-reduce rf result xs) result)]
+             (rf res input)))))))
+
+(defn append [xs]
+  ;; passes all inputs, then inserts xs sequentially at end of result stream
+  (fn [rf]
+    (fn
+      ([] (rf))
+      ([result] (rf-reduce rf result xs))
+      ([result input] (rf result input)))))
+
+
+;; CLJ-1903 has something like this as a patch as a proposed `reductions` transducer.
+;; My version changes the name so the two-arg version has an init value.  Also, does the
+;; right thing with adding the init to the output stream as in reductions.
+(defn reducts
+  "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+  ([f init]
+   (comp (fn [rf]
+           (let [state (volatile! init)]
+             (fn
+               ([] (rf))
+               ([result] (rf result))
+               ([result input]
+                  (let [r (vswap! state f input)]
+                    (if (reduced? r)
+                      (ensure-reduced (rf result @r))
+                      (rf result r)))))))
+         (prepend [init])))
+  ([f init coll] (reductions f init coll)))
+
+
+
+;; IDEA
+;; take-padding like take but pads if necessary to get full N
 

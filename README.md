@@ -13,6 +13,8 @@ Playing around with Clojure transducers.
 ![Transmuter from Catspaw](transmuter.jpg "Transmuter")
 
 
+*Not a library, just some experimental code.*
+
 ## License
 
 Copyright © 2015 Steve Miner
