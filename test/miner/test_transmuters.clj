@@ -131,3 +131,10 @@
   (is (= (sequence (convolve [0.25 0.5 0.25]) [1 2 3 4 5])
          '(2.0 3.0 4.0))))
 
+(defn limit10+
+  ([] 0)
+  ([a b] (let [sum (+ a b)] (if (> sum 10) (reduced sum) sum))))
+
+(deftest xreducts
+  (is (= (reductions + 3 (range 20)) (sequence (reducts + 3) (range 20))))
+  (is (= (reductions limit10+ 3 (range 20)) (sequence (reducts limit10+ 3) (range 20)))))
