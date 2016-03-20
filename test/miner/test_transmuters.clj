@@ -138,3 +138,9 @@
 (deftest xreducts
   (is (= (reductions + 3 (range 20)) (sequence (reducts + 3) (range 20))))
   (is (= (reductions limit10+ 3 (range 20)) (sequence (reducts limit10+ 3) (range 20)))))
+
+(deftest prepend-append
+  (is (= (sequence (prepend [11 12]) (range 10)) (concat [11 12] (range 10))))
+  (is (= (sequence (append [11 12]) (range 10)) (concat (range 10) [11 12])))
+  (is (= (sequence (comp (prepend [4]) (reducts limit10+ 3) (append [101])) (range 10))
+         '(3 7 7 8 10 13 101))))
