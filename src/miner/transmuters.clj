@@ -17,6 +17,13 @@
     `(let [~tagged (.deref ~v)] (long (.reset ~v (~f ~tagged ~@args))))))
 
 
+;; based on preserving-reduced from clojure/core.clj
+;; the extra level of `reduced` preserves the early termination value
+(defn rf-reduce [rf result xs]
+  (let [rrf (fn [r x] (let [ret (rf r x)] (if (reduced? ret) (reduced ret) ret)))]
+    (reduce rrf result xs)))
+
+
 (defn queue
   ([] clojure.lang.PersistentQueue/EMPTY)
   ([coll] (reduce conj clojure.lang.PersistentQueue/EMPTY coll)))
@@ -475,7 +482,7 @@
 
 ;; slide is like a step=1 partition (as opposed to partition-all)
 ;; if you want a different step size, compose with take-nth
-;;   (comp (partitions 3) (take-nth 3)) -- similar to partion (but not -all)
+;;   (comp (slide 3) (take-nth 3)) -- similar to partion (but not -all)
 ;; internal queue is initialized to init (default [])
 
 ;; (partition-all 4 1 (range 5))
@@ -495,6 +502,26 @@
        (fn
          ([] (rf))
          ([result] (rf result))
+         ([result input]
+          (let [q (vswap! qv push n input)]
+            (if (< (count q) n)
+              result
+              (rf result (seq q))))))))))
+
+;; slide-all tries to complete popping the queue if there are leftovers on completion
+;; the final partitions may be smaller than N.
+(defn slide-all
+  ([n] (slide-all n []))
+  ([n init]
+   (fn [rf]
+     (let [qv (volatile! (queue init))]
+       (fn
+         ([] (rf))
+         ([result] (let [q @qv
+                         q (if (>= (count q) n) (pop q) q)]
+                     (if (seq q)
+                       (unreduced (rf-reduce rf result (map seq (take (count q) (iterate pop q)))))
+                       (rf result))))
          ([result input]
           (let [q (vswap! qv push n input)]
             (if (< (count q) n)
@@ -574,17 +601,6 @@
      (converge-seq f init))))
 
 
-
-
-;; SEM init could be reduced? !!! need to check like reductions
-
-
-;; based on preserving-reduced from clojure/core.clj
-;; the extra level of `reduced` preserves the early termination value
-(defn rf-reduce [rf result xs]
-  (let [rrf (fn [r x] (let [ret (rf r x)] (if (reduced? ret) (reduced ret) ret)))]
-    (reduce rrf result xs)))
-
 (defn prepend [xs]
   ;; effectively inserts xs sequentially into input stream before normal inputs
   (fn [rf]
@@ -605,6 +621,8 @@
       ([result] (rf-reduce rf result xs))
       ([result input] (rf result input)))))
 
+
+;; SEM init could be reduced? !!! need to check like reductions
 
 ;; CLJ-1903 has something like this as a patch as a proposed `reductions` transducer.
 ;; My version changes the name so the two-arg version has an init value.  Also, does the
@@ -632,3 +650,24 @@
 ;; IDEA
 ;; take-padding like take but pads if necessary to get full N
 
+
+;; from the Clojure mailing list
+;; by andre.rauh@gmail.com
+(defn dedupe-by
+  "Similar to dedupe but allows applying a function to the element by which to dedupe."
+  ([f]
+   (fn [rf]
+     (let [pv (volatile! ::none)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (let [prior @pv
+                cv (f input)]
+            (vreset! pv cv)
+            (if (= prior cv)
+              result
+              (rf result input))))))))
+  ([f coll] (sequence (dedupe-by f) coll)))
+
+;; regular dedupe would be (dedupe-by identity)
