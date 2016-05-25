@@ -801,3 +801,58 @@
   ([f init coll] (reductions f init coll)))
 
 
+;; almost clever variants of prepend, but they can't handle the empty input stream
+(comment
+  (sequence (prepend2 [3 4 5]) ())
+  ;; => ()
+  (sequence (prepend [3 4 5]) ())
+  ;; => (3 4 5)
+)
+  
+(defn prepend2 [xs]
+  (chain (comp (take 1) (mapcat #(concat xs (list %))))
+         xpass))
+
+(defn prepend2 [xs]
+  (let [xs (vec xs)]
+    (chain (comp (take 1) (mapcat #(conj xs %)))
+           xpass)))
+
+
+(defn prepend2 [xs]
+  (chain (comp (take 1) (mapcat (fn [_] xs)))
+         pushback
+         xpass))
+
+
+(defn prepend1 [x]
+  (chain (comp (take 1) (map (fn [_] x)))
+         pushback
+         xpass))
+
+(defn prepend1 [x]
+  (chain (comp (take 1) (map (fn [_] x)))
+         pushback
+         xpass))
+
+
+;;; 05/25/16  17:50 by miner -- for reference
+;; CLJ-1903 patch2, note: doesn't handle init the way real reductions does
+(defn reductions-with
+  "Returns a lazy seq of the intermediate values of the reduction (as
+  per reduce) of coll by f, starting with init.  Returns a stateful
+  transducer when no collection is provided."
+  {:added "1.8"}
+  ([f init]
+   (fn [rf]
+     (let [state (volatile! init)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (reduced? @state)
+            @state
+            (rf result (unreduced (vswap! state f input)))))))))
+  ([f init coll]
+   (reductions f init coll)))
+

@@ -624,6 +624,8 @@
 
 ;; SEM init could be reduced? !!! need to check like reductions
 
+;; SEM: maybe transductions as the name for a transducer version with init
+
 ;; CLJ-1903 has something like this as a patch as a proposed `reductions` transducer.
 ;; My version changes the name so the two-arg version has an init value.  Also, does the
 ;; right thing with adding the init to the output stream as in reductions.
@@ -644,7 +646,6 @@
                       (rf result r)))))))
          (prepend [init])))
   ([f init coll] (reductions f init coll)))
-
 
 
 ;; IDEA

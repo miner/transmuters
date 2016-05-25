@@ -140,6 +140,11 @@
   (is (= (reductions limit10+ 3 (range 20)) (sequence (reducts limit10+ 3) (range 20)))))
 
 (deftest prepend-append
+  (is (= (sequence (prepend [3 4 5]) ()) '(3 4 5)))
+  (is (= (sequence (comp (prepend [3 4]) (map #(* 2 %))) (range 4))
+         '(6 8 0 2 4 6)))
+  (is (= (sequence (comp (map #(* 2 %)) (prepend [3 4]) ) (range 4))
+         '(3 4 0 2 4 6)))
   (is (= (sequence (prepend [11 12]) (range 10)) (concat [11 12] (range 10))))
   (is (= (sequence (append [11 12]) (range 10)) (concat (range 10) [11 12])))
   (is (= (sequence (comp (prepend [4]) (reducts limit10+ 3) (append [101])) (range 10))
