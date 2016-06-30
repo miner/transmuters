@@ -102,6 +102,7 @@
      ([a b c & args] (case n 1 a 2 b 3 c (nth args (- n 4) default-value))))))
 
 ;; perhaps appropriate for testing, not practically useful
+;; seems like conj would do the same thing (as a transducer)???
 (defn xpass [rf]
   ;; identity/unit transducer, passes everything along without change
   (fn
@@ -280,6 +281,10 @@
           (if (pred input)
             (rf result (vlswap! nv inc))
             (rf result false))))))))
+
+
+;; use built-in `map-indexed` if you want index and value to process
+;; counter just counts successful pred calls, not indexed
 
 
 ;; SEM other similar ideas:
@@ -672,3 +677,4 @@
   ([f coll] (sequence (dedupe-by f) coll)))
 
 ;; regular dedupe would be (dedupe-by identity)
+
