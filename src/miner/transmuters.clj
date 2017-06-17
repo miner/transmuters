@@ -455,6 +455,51 @@
    (let [[head tail] (split-with (complement pred) coll)]
      (concat head (rest tail)))))
 
+;; BUGGY, attempting to make halt-when work with sequence, but it doesn't
+#_ (defn xhalt-when
+  ([pred] (xhalt-when pred nil))
+  ([pred retf]
+     (fn [rf]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [res (unreduced result)]
+            (if (and (map? res) (contains? res ::halt))
+              (do (println "handling rf::halt")
+              (::halt res))
+              (rf res))))
+         ([result input]
+          (if (pred input)
+            (do (println "reduced::halt")
+              (reduced {::halt (if retf (retf (rf result) input) input)}))
+              (rf result input)))))))
+
+
+;; http://dev.clojure.org/jira/browse/CLJ-1451
+;; takes until pred is true, including that last item
+(defn take-until
+  "Returns a lazy sequence of successive items from coll while
+  (pred item) returns true. pred must be free of side-effects.
+  Returns a transducer when no collection is provided."
+  {:added "1.0"
+   :static true}
+  ([pred]
+     (fn [rf]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+            (if (pred input)
+              (ensure-reduced (rf result input) )
+              (rf result input))))))
+  ([pred coll]
+     (lazy-seq
+      (when-let [s (seq coll)]
+        (if (pred (first s))
+          (list (first s))
+          ;; or maybe (cons (first s) nil) -- everything else is cons
+          (cons (first s) (take-until pred (rest s))))))))
+
 
 ;; generalized take-while
 (defn take-while2
@@ -678,3 +723,11 @@
 
 ;; regular dedupe would be (dedupe-by identity)
 
+;; like map but calls the fs in cycle (f i0) (g i1) (h i2) (f i3) ...
+(defn map-cycle
+  ([f] (map f))
+  ([f g] (map-indexed (fn [i x] (if (even? i) (f x) (g x)))))
+  ([f g h] (map-indexed (fn [i x] (case (int (rem i 3)) 0 (f x) 1 (g x) 2 (h x)))))
+  ([f g h & more] (let [fv (into [f g h] more)
+                        fcnt (count fv)]
+                    (map-indexed (fn [i x] ((fv (rem i fcnt)) x))))))
