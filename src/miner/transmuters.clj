@@ -6,6 +6,25 @@
 ;; some other things to look at:
 ;; https://github.com/cgrand/xforms
 
+
+;; cgrand's rules for writing transducers:
+;;
+;; [] always call (rf) -- nothing much to do as depending on how the transducer is used
+;; it may not even be called (eg transduce with init value)
+;;
+;; [r] it's an opportunity to flush state of the current transducer, so several calls to
+;; the downstream rf with 2 args is possible. However one should always end by calling the
+;; 1-arg arity of rf. There's no guarantee it will be called (eg sequence or chan)
+;;
+;; [r x] 2-arg: don't forget to think about how to handle reduced values (unwrap, rewrap or
+;; propagate)
+;;
+;; SEM Note: I think of r as the current accumulation, but it's really just bookkeeping for
+;; the transducer chain and mostly opaque, not something your transducer can inspect or
+;; calculate with other than passing on something to other transducers.
+
+
+
 ;; specialized version of vswap! for handling long values, avoids reflection warning
 (defmacro vlswap!
   "Non-atomically swaps the value of the volatile as if:
@@ -731,3 +750,8 @@
   ([f g h & more] (let [fv (into [f g h] more)
                         fcnt (count fv)]
                     (map-indexed (fn [i x] ((fv (rem i fcnt)) x))))))
+
+;; Note: map-cycle spreads fn calls across elements, whereas (mapcat (juxt ...)) calls all
+;; fns on each element.
+
+
