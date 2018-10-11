@@ -150,10 +150,9 @@
   (is (= (sequence (comp (prepend [4]) (reducts limit10+ 3) (append [101])) (range 10))
          '(3 7 7 8 10 13 101))))
 
-
+#_
 (deftest map-cycling
   (is (= (sequence (map-cycle + - + + -) (range 20))
          '(0 -1 2 3 -4 5 -6 7 8 -9 10 -11 12 13 -14 15 -16 17 18 -19)))
   (is (= (sequence (map-cycle +) (range 20)) (range 20))))
 
-         

@@ -1,4 +1,5 @@
-(ns miner.transmuters)
+(ns miner.transmuters
+  (:require [criterium.core :as c]))
 
 ;; Just playing around with transducers, new in Clojure 1.7.
 ;; http://clojure.org/transducers
@@ -742,8 +743,8 @@
 
 ;; regular dedupe would be (dedupe-by identity)
 
-;; like map but calls the fs in cycle (f i0) (g i1) (h i2) (f i3) ...
-(defn map-cycle
+;; retired
+#_ (defn map-cycle
   ([f] (map f))
   ([f g] (map-indexed (fn [i x] (if (even? i) (f x) (g x)))))
   ([f g h] (map-indexed (fn [i x] (case (int (rem i 3)) 0 (f x) 1 (g x) 2 (h x)))))
@@ -751,7 +752,79 @@
                         fcnt (count fv)]
                     (map-indexed (fn [i x] ((fv (rem i fcnt)) x))))))
 
-;; Note: map-cycle spreads fn calls across elements, whereas (mapcat (juxt ...)) calls all
+;; map-alt is like the map xform but calls the funtions in an alternating order
+;; (f i0) (g i1) (h i2) (f i3) ...
+;;
+;; In other words, map-alt spreads fn calls across elements, whereas (mapcat (juxt ...)) calls all
 ;; fns on each element.
 
+(defn map-alt
+  ([] (map identity))
 
+  ([f] (map f))
+
+  ([f g]
+   (fn [rf]
+     (let [toggle (volatile! false)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (rf result (if (vswap! toggle not) (f input) (g input))))))))
+
+  ([f g & more]
+   (fn [rf]
+     (let [fv (into [f g] more)
+           cnt (count fv)
+           inc0 (fn [n] (let [n (unchecked-inc n)] (if (>= n cnt) 0 n)))
+           i (volatile! -1)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (rf result ((nth fv (vswap! i inc0)) input))))))))
+
+;; not so useful
+;; makes a new function that selects a function by index (really (rem i cnt) so wraps around)
+;; ((fnth + -) 1 42)  ==>  -42
+;; makes more sense if applied by (map-indexed
+(defn fnth
+  ([] (fn [_] identity))
+  ([f] (fn [_] f))
+  ([f g] (fn [i] (if (even? i) f g)))
+  ([f g h] (fn [^long i] (case i 0 f 1 g 2 h (recur (rem i 3)))))
+  ([f g h & more] (let [fv (into [f g h] more)
+                        fcnt (count fv)]
+                    (fn [i]
+                      (nth fv (rem i fcnt))))))
+
+(defn ben [xf]
+  (println (str xf))
+  (c/quick-bench (reduce + 0 (into [] xf (range 1000)))))
+
+(def sem-xform (map-alt identity -))
+
+;; (def sem-xform1 (map-alt1 identity -))
+
+;; (def cyc-xform (map-cycle identity -))
+
+(def mfikes-xform
+  (comp 
+   (partition-all 2)
+   (mapcat (fn [[x y]]
+             (if y
+               [x (- y)]
+               [x])))))
+
+
+(def borkdude-xform
+  (map (let [st (volatile! 1)]
+         (fn [n]
+           (let [sign (vswap! st #(* -1 %))]
+             (* sign n))))))
+
+
+(def aengelbro-xform
+  (map 
+   (let [n (volatile! -1)]
+     #(* % (vswap! n -)))))
