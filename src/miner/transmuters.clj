@@ -352,7 +352,8 @@
    (when-let [s (seq coll)]
      (concat (take (dec n) (rest s)) (lazy-drop-nth n (drop n s))))))
 
-(defn drop-nth
+;; This is trying to hard to handle negative N.  Not worth it.  See better drop-nth below.
+(defn drop-nth-too-cute
   "Returns a lazy seq dropping the first and every nth item thereafter in coll.  Returns a stateful
   transducer when no collection is provided.  When N <= 0, returns the (rest coll)."
   {:static true}
@@ -374,6 +375,51 @@
    (if-not (pos? n)
      (lazy-seq (rest coll))
      (lazy-drop-nth n coll))))
+
+
+;; For Eric Normand's puzzle
+;; https://purelyfunctional.tv/issues/purelyfunctional-tv-newsletter-316-avoid-licensing-and-support-issues-with-the-right-jdk-for-you/
+
+;; Note that the first item is not dropped, unlike `take-nth`.
+(defn drop-every
+  "Returns a sequence with every nth element removed."
+  ([n]
+   {:pre [(pos-int? n)]}
+   (fn [rf]
+     (let [iv (volatile! n)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (zero? (vswap! iv unchecked-dec))
+            (do (vreset! iv n) result)
+            (rf result input)))))))
+
+  ([n coll]
+   (sequence (drop-every n) coll)) )
+
+
+;; SEM -- I think it's better to be like take-nth so the first item is dropped.  Just
+;; initilize iv differently.  The rest is like `drop-every`.
+(defn drop-nth
+  "Returns a sequence with the first and every nth element thereafter removed."
+  ([n]
+   {:pre [(pos-int? n)]}
+   (fn [rf]
+     (let [iv (volatile! 1)]
+       (fn
+         ([] (rf))
+         ([result] (rf result))
+         ([result input]
+          (if (zero? (vswap! iv unchecked-dec))
+            (do (vreset! iv n) result)
+            (rf result input)))))))
+
+  ([n coll]
+   (sequence (drop-nth n) coll)) )
+
+;;; easy to transform, but better to pick one and stay with it.
+#_ (defn drop-every [n coll] (drop-nth n (cons nil coll)))
 
 
 ;; collection version by Frank on mailing list
@@ -828,3 +874,33 @@
   (map 
    (let [n (volatile! -1)]
      #(* % (vswap! n -)))))
+
+
+;; somewhat faster logic for testing nv
+;; slightly safer to make sure (pos? n)
+(defn xdrop
+  "Returns a lazy sequence of all but the first n items in coll.
+  Returns a stateful transducer when no collection is provided."
+  {:static true}
+  ([n]
+   (if (pos? n)
+     (fn [rf]
+       (let [nv (volatile! n)]
+         (fn
+           ([] (rf))
+           ([result] (rf result))
+           ([result input]
+            (if (zero? @nv)
+              (rf result input)
+              (do (vswap! nv dec)
+                  result))))))
+     xpass))
+
+  ([n coll]
+     (let [step (fn [n coll]
+                  (let [s (seq coll)]
+                    (if (and (pos? n) s)
+                      (recur (dec n) (rest s))
+                      s)))]
+       (lazy-seq (step n coll)))))
+
