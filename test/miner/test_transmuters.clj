@@ -40,6 +40,7 @@
          (sequence (partition-when f) coll)
          (transduce (partition-when f) conj [] coll))))
 
+
 (deftest ranges
   (doseq [coll (list () [1] (range 100))]
     (test-take-nth coll)
@@ -47,7 +48,20 @@
     (test-partition-when even? coll)
     (test-partition-when odd? coll)
     (test-empty coll)))
-  
+
+
+(deftest part-while
+  (is (= (partition-while >= [1 2 2 3 1 5 3])
+         '([1] [2 2] [3 1] [5 3])))
+  (is (= (partition-while > [1 2 2 3 1 5 3])
+         '([1] [2] [2] [3 1] [5 3])))
+  (is (= (partition-while <= [1 2 2 3 1 5 3])
+         '([1 2 2 3] [1 5] [3])))
+  (is (= (partition-while < [1 2 2 3 1 5 3])
+         '([1 2] [2 3] [1 5] [3]))))
+
+
+                                             
 (deftest thresholds
   (let [coll (range 100)]
     (is (= (sequence (partition-threshold (constantly 1) 13) coll)

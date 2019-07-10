@@ -425,9 +425,9 @@
 ;; collection version by Frank on mailing list
 ;; SEM added transducer version, adapted from partition-by
 (defn partition-when
-   "Applies f to each value in coll, starting a new partition each time f returns a
-   true value.  Returns a lazy seq of partitions.  Returns a stateful
-   transducer when no collection is provided."
+  "Applies f to each value in coll, starting a new partition each time f returns a true
+  value.  Returns a lazy seq of partitions.  The first input goes into the first partition
+  without calling `f`.  Returns a stateful transducer when no collection is provided."
   {:static true}
   ([f]
    (fn [rf]
@@ -443,25 +443,56 @@
                            (unreduced (rf result v))))]
             (rf result)))
          ([result input]
-            (if (.isEmpty a)
-              (do (.add a input)
+          (if (and (not (.isEmpty a)) (f input))
+            (let [v (vec (.toArray a))]
+              (.clear a)
+              (let [ret (rf result v)]
+                (when-not (reduced? ret)
+                  (.add a input))
+                ret))
+            (do
+              (.add a input)
+              result)))))))
+  ([f coll]
+   (lazy-seq
+    (when-let [s (seq coll)]
+      (let [run (cons (first s) (take-while #(not (f %)) (next s)))]
+        (cons run (partition-when f (seq (drop (count run) s)))))))))
+
+(defn partition-while
+  "Returns a lazy sequence of partitions with each partition containing a run of elements for
+  which `pred2` returns true when applied to the previous element and the current input.  The
+  first input goes into the first partition without calling `pred2`.  Returns a stateful
+  transducer when no collection is provided."
+  ([pred2]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                           ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (rf result)))
+         ([result input]
+            (if (or (.isEmpty a) (pred2 (.get a (dec (.size a))) input))
+                (do
+                  (.add a input)
                   result)
-              (if (f input)
                 (let [v (vec (.toArray a))]
                   (.clear a)
                   (let [ret (rf result v)]
                     (when-not (reduced? ret)
                       (.add a input))
-                    ret))
-                (do
-                  (.add a input)
-                  result))))))))
+                    ret))))))))
+  ([pred2 coll]
+   (sequence (partition-while pred2) coll)))
 
-  ([f coll]
-  (lazy-seq
-   (when-let [s (seq coll)]
-     (let [run (cons (first s) (take-while #(not (f %)) (next s)))]
-       (cons run (partition-when f (seq (drop (count run) s)))))))))
+#_ (partition-while <= [1 2 2 3 1 5 3])
+;=> ([1 2 2 3] [1 5] [3])
 
 
 
