@@ -461,9 +461,9 @@
 
 (defn partition-while
   "Returns a lazy sequence of partitions with each partition containing a run of elements for
-  which `pred2` returns true when applied to the previous element and the current input.  The
-  first input goes into the first partition without calling `pred2`.  Returns a stateful
-  transducer when no collection is provided."
+  which the binary predicate `pred2` returns true when applied the previous element and the current
+  input.  The first input goes into the first partition without calling `pred2`.  Returns a
+  stateful transducer when no collection is provided."
   ([pred2]
    (fn [rf]
      (let [a (java.util.ArrayList.)]
@@ -478,22 +478,21 @@
                            (unreduced (rf result v))))]
             (rf result)))
          ([result input]
-            (if (or (.isEmpty a) (pred2 (.get a (dec (.size a))) input))
-                (do
-                  (.add a input)
-                  result)
-                (let [v (vec (.toArray a))]
-                  (.clear a)
-                  (let [ret (rf result v)]
-                    (when-not (reduced? ret)
-                      (.add a input))
-                    ret))))))))
+          (if (or (.isEmpty a) (pred2 (.get a (dec (.size a))) input))
+            (do
+              (.add a input)
+              result)
+            (let [v (vec (.toArray a))]
+              (.clear a)
+              (let [ret (rf result v)]
+                (when-not (reduced? ret)
+                  (.add a input))
+                ret))))))))
   ([pred2 coll]
    (sequence (partition-while pred2) coll)))
 
 #_ (partition-while <= [1 2 2 3 1 5 3])
 ;=> ([1 2 2 3] [1 5] [3])
-
 
 
 (defn partition-threshold
