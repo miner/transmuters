@@ -623,6 +623,32 @@
   ([accf init pred2]
    (take-while2 accf init (complement pred2))))
 
+
+(defn xtake
+  "Like (take n) transducer, but with optional `pad` item that is provided as necessary if
+  input runs out before `n` items are taken."
+  ([n] (take n))
+  ([n pad]
+     (fn [rf]
+       (let [nv (volatile! n)]
+         (fn
+           ([] (rf))
+           ([result] (if (zero? @nv)
+                       (rf result)
+                       (rf (ensure-reduced (reduce rf (unreduced result) (repeat @nv pad))))))
+           ([result input]
+              (let [n @nv
+                    nn (vswap! nv dec)
+                    result (if (pos? n)
+                             (rf result input)
+                             result)]
+                (if (not (pos? nn))
+                  (ensure-reduced result)
+                  result))))))))
+
+
+
+
 ;; think about drop-while-accumulating
 
 
