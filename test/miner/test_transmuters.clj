@@ -9,6 +9,21 @@
          (sequence (my-take-nth 3) coll)
          (transduce (my-take-nth 3) conj [] coll))))
 
+
+(defn test-xtake [coll]
+  (is (= (sequence (xtake 3) coll)
+         (take 3 coll)
+         (transduce (xtake 3) conj [] coll)))
+  (let [pad ::x
+        len (count coll)]
+    (if (< len 3)
+      (is (= (sequence (xtake 3 pad) coll)
+             (concat (take 3 coll) (repeat (- 3 len) pad))
+             (transduce (xtake 3 pad) conj [] coll))))))
+
+
+
+
 (defn test-drop-nth [coll]
   (is (= (drop-nth 3 coll)
          (sequence (drop-nth 3) coll)
@@ -44,6 +59,7 @@
 (deftest ranges
   (doseq [coll (list () [1] (range 100))]
     (test-take-nth coll)
+    (test-xtake coll)
     (test-drop-nth coll)
     (test-partition-when even? coll)
     (test-partition-when odd? coll)
