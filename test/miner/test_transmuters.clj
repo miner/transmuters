@@ -16,7 +16,7 @@
          (transduce (xtake 3) conj [] coll)))
   (let [pad ::x
         len (count coll)]
-    (if (< len 3)
+    (when (< len 3)
       (is (= (sequence (xtake 3 pad) coll)
              (concat (take 3 coll) (repeat (- 3 len) pad))
              (transduce (xtake 3 pad) conj [] coll))))))
