@@ -637,7 +637,7 @@
           (let [n @nv]
             (if (zero? n)
               (rf result)
-              (rf (reduce rf (unreduced result) (repeat n pad))))))
+              (rf (unreduced (reduce rf (unreduced result) (repeat n pad)))))))
          ([result input]
           (let [n @nv
                 nn (vswap! nv dec)
