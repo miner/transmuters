@@ -959,3 +959,48 @@
                       s)))]
        (lazy-seq (step n coll)))))
 
+
+;; might be generally useful pattern
+(defn xsome
+  "Like `some` with a transducer.  A reducing function `xform` is applied to each item from
+  `coll`.  If the result satisfies `pred`, that result is returned.  Otherwise the process
+  continues with the next input.  If none satisfies `pred`, nil is returned."
+  ([pred coll]
+   (first (filter pred coll)))
+  ([xform pred coll]
+   (first (sequence (comp xform (filter pred) (take 1)) coll))))
+
+
+(defn xnone
+  ([pred coll] (not-any? pred coll))
+  ([xform pred coll]
+   (empty? (into () (comp xform (filter pred) (take 1)) coll))))
+
+
+#_ (quick-bench (xnone (map #(* 2 %)) odd? (range 1000)))  ;; 21 us
+#_ (quick-bench (xnever (map #(* 2 %)) odd? (range 1000))) ;; 22 us
+#_ (quick-bench (not-any? odd? (map #(* 2 %) (range 1000)))) ;; 64 us
+
+;; transduce reducing function to check for nil result (per item).  Could be faster than
+;; collecting a bunch of negative results
+
+(defn none?
+  ([] nil)
+  ([r] (nil? r))
+  ([r x] false))
+
+;;; compare with xnone  should only need one???
+(defn xnever
+  ([pred coll] (not-any? pred coll))
+  ([xform pred coll]
+   (transduce (comp xform (filter pred) (take 1)) none? coll)))
+
+
+;;; Maybe lost something during generalization.  Orignally used transient map so it might
+;;; handle collisions.  General concept of using transient as state and completing to count/etc.
+#_
+(defn NOT-READY-xcount [xform pred coll]
+  (transduce (comp xform (filter pred))
+             (completing conj! count)
+             (transient [])
+             coll))
