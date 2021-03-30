@@ -106,6 +106,11 @@
   ([f a b c & more] (mapcat #(apply f a b c (concat more (list %))))))
 
 
+;; converts from collection style (->> xs foo bar) into transducer sequence with minimal
+;; textual change
+(defmacro seq->> [coll & forms]
+  `(sequence (comp ~@forms) ~coll))
+
 ;; numbering scheme follows anonymous function notation
 (defn farg
   "Returns a function that simply returns its Nth arg.  The first arg is position 1, which
