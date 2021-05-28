@@ -1017,3 +1017,13 @@
   ([] (StringBuilder.))
   ([sb] (str sb))
   ([sb x] (.append ^StringBuilder sb (str x))))
+
+;; xform version of str
+(defn xstr [xform coll]
+  (transduce xform string-builder coll))
+
+
+;; similar to  (str/join separator coll)
+#_
+(xstr (interpose " + ") (range 5))
+;;=> "0 + 1 + 2 + 3 + 4"
