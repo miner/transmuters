@@ -269,6 +269,8 @@
                     result)
                 (rf result x))))))))))
 
+;; SEM FIXME  above (do (vreset! ... input) ...) could just use same result of vreset! --
+;; don't need `do`
 
 ;; sort of a filter with state
 (defn switch
@@ -1009,3 +1011,9 @@
              (completing conj! count)
              (transient [])
              coll))
+
+;; good as a transducing function
+(defn string-builder
+  ([] (StringBuilder.))
+  ([sb] (str sb))
+  ([sb x] (.append ^StringBuilder sb (str x))))
