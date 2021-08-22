@@ -658,6 +658,50 @@
 ;; think about drop-while-accumulating
 
 
+
+#_ (partition-by zero? [1 2 3 0 4 5 0 7 0 0 0 9 0])
+;;=> ((1 2 3) (0) (4 5) (0) (7) (0 0 0) (9) (0))
+
+#_ (slice-by zero? [1 2 3 0 4 5 0 7 0 0 0 9 0])
+;;=> ([nil 1 2 3] [0 4 5] [0 7] [0] [0] [0 9] [0])
+
+(defn slice-by
+  "Similar to `partition-by` but a new partition starts only when `pred` returns true for
+  the input, otherwise the input is added to the current partition.  As a special case, when
+  the first input does not satisfy `pred`, the first partition in the result will start with
+  nil as a marker."
+  ([pred]
+   (fn [rf]
+     (let [a (java.util.ArrayList.)]
+       (fn
+         ([] (rf))
+         ([result]
+          (let [result (if (.isEmpty a)
+                         result
+                         (let [v (vec (.toArray a))]
+                           ;;clear first!
+                           (.clear a)
+                           (unreduced (rf result v))))]
+            (rf result)))
+         ([result input]
+          (if (pred input)
+            (if (.isEmpty a)
+              (do (.add a input) result)
+              (let [v (vec (.toArray a))]
+                (.clear a)
+                (let [ret (rf result v)]
+                  (when-not (reduced? ret)
+                    (.add a input))
+                  ret)))
+            (do
+              (when (.isEmpty a) (.add a nil))
+              (.add a input)
+              result)))))))
+  ([pred coll]
+   (sequence (slice-by pred) coll)))
+
+
+
 ;; slide is like a step=1 partition (as opposed to partition-all)
 ;; if you want a different step size, compose with take-nth
 ;;   (comp (slide 3) (take-nth 3)) -- similar to partion (but not -all)
