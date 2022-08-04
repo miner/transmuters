@@ -1071,3 +1071,21 @@
 #_
 (xstr (interpose " + ") (range 5))
 ;;=> "0 + 1 + 2 + 3 + 4"
+
+;; https://ask.clojure.org/index.php/12097/group-by-reducing-function
+;;; offered by Ed Bowler
+(defn xgroup-by
+  ([f]
+   (fn
+     ([] (transient {}))
+     ([r] (persistent! r))
+     ([r x]
+      (let [k (f x)]
+        (assoc! r k (conj (get r k []) x))))))
+  ([f coll]  
+   (persistent!
+    (reduce
+     (fn [ret x]
+       (let [k (f x)]
+         (assoc! ret k (conj (get ret k []) x))))
+     (transient {}) coll))))
